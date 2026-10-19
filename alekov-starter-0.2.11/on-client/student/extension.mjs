@@ -63,9 +63,9 @@ export function createStudentView() {
         appendText(identity, 'dt', '사용자');
         appendText(identity, 'dd', `${user.label || user.id} · ID: ${user.id}`);
         appendText(identity, 'dt', '현재 기기');
-        appendText(identity, 'dd', `${device.label || device.id} · ID: ${device.id} · ${deviceStatusLabel(device.status)}`);
+        appendText(identity, 'dd', `${device.label || device.id} · ID: ${device.id} · ${deviceStatusLabel(device.status)} (${device.status})`);
         appendText(identity, 'dt', '현재 세션');
-        appendText(identity, 'dd', `${session.id} · ${sessionStatusLabel(session.status)}`);
+        appendText(identity, 'dd', `${session.id} · ${sessionStatusLabel(session.status)} (${session.status})`);
         identitySection.append(identity);
       }
       root.append(identitySection);
@@ -79,7 +79,7 @@ export function createStudentView() {
         } else {
           const list = document.createElement('ul');
           for (const device of devices.data) {
-            appendText(list, 'li', `${device.label || device.id} · ID: ${device.id} · ${deviceStatusLabel(device.status)}`);
+            appendText(list, 'li', `${device.label || device.id} · ID: ${device.id} · ${deviceStatusLabel(device.status)} (${device.status})`);
           }
           devicesSection.append(list);
         }
@@ -95,7 +95,7 @@ export function createStudentView() {
         } else {
           const list = document.createElement('ul');
           for (const session of sessions.data) {
-            appendText(list, 'li', `${session.id} · ${sessionStatusLabel(session.status)}`);
+            appendText(list, 'li', `${session.id} · ${sessionStatusLabel(session.status)} (${session.status})`);
           }
           sessionsSection.append(list);
         }
