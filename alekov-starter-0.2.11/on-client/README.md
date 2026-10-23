@@ -42,6 +42,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\start-alekov.ps1
 - 단계별 안내와 AI 요청문: [docs/STUDENT_PROMPTS.md](docs/STUDENT_PROMPTS.md)
 - 단계별 확인 계약: [docs/CURRICULUM.json](docs/CURRICULUM.json), [docs/IMPLEMENTATION_CONTRACT.md](docs/IMPLEMENTATION_CONTRACT.md)
 - 앱 실행·구성도·기능·오류 순서: [docs/STUDENT_RUNBOOK.md](docs/STUDENT_RUNBOOK.md) 및 [docs/STUDENT_IMPLEMENTATION_NOTES.md](docs/STUDENT_IMPLEMENTATION_NOTES.md)
+- 22단계 새 환경 재현 절차·관찰 기록·버전 상태: [docs/STUDENT_REPRODUCTION_RECORD.md](docs/STUDENT_REPRODUCTION_RECORD.md)
 - AI 설정 문서의 스크립트 목록 정정 참고: [docs/AI_SETUP_SCRIPT_CORRECTION.md](docs/AI_SETUP_SCRIPT_CORRECTION.md)
 - 오류 코드별 해결: [docs/CONNECTION_TROUBLESHOOT.md](docs/CONNECTION_TROUBLESHOOT.md)
 - 시작 틀 업데이트(내 파일 보존): [docs/STARTER_UPDATE.md](docs/STARTER_UPDATE.md)

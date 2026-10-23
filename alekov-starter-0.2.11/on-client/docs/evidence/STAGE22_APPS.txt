@@ -1,0 +1,54 @@
+Browser tab: 1, Title: "케셰브 · ZTNA & XDR", URL: "http://127.0.0.1:5190/".
+0 AXWebArea 케셰브 · ZTNA & XDR, URL: 127.0.0.1:5190/
+	1 link Description: 본문으로 건너뛰기, Value: 127.0.0.1:5190/#main
+	2 container
+		3 text 케셰브  ZTNA & XDR 보안 Agent
+		4 text 연결 없음
+		5 text 확인 시각 2026. 10. 23. 오후 4:21:14
+		6 button 다시 불러오기, ID: refresh
+	7 container 주 메뉴
+		8 tab group nav
+			9 tab (selectable, settable, boolean) 보호 현황, Value: 0, ID: tab-protection
+			10 tab (selected, settable, boolean) 업무 앱, Value: 1, ID: tab-apps
+			11 tab (selectable, settable, boolean) 보안 기록, Value: 0, ID: tab-records
+		12 text 메뉴는 위·아래 방향키로 이동할 수 있습니다.
+	13 container main
+		193 content list
+			194 container
+				195 AXListMarker • 
+				196 text 로그인 정보:  기존 서버·에이전트의 연결을 확인할 수 없습니다. 연결 어댑터를 먼저 확인하세요.
+			197 container
+				198 AXListMarker • 
+				199 text 업무 앱:  기존 서버·에이전트의 연결을 확인할 수 없습니다. 연결 어댑터를 먼저 확인하세요.
+			200 container
+				201 AXListMarker • 
+				202 text 보안 기록:  기존 서버·에이전트의 연결을 확인할 수 없습니다. 연결 어댑터를 먼저 확인하세요.
+			203 container
+				204 AXListMarker • 
+				205 text 기기:  기존 서버·에이전트의 연결을 확인할 수 없습니다. 연결 어댑터를 먼저 확인하세요.
+			206 container
+				207 AXListMarker • 
+				208 text 세션:  기존 서버·에이전트의 연결을 확인할 수 없습니다. 연결 어댑터를 먼저 확인하세요.
+		30 container
+			31 text 제공 공통 UI 와  학생 구현 표시 (student/extension.mjs)는 구분되어 있습니다. 제공 코드는 학생 성취로 계산되지 않으며, 예제(demo)·연결 없음 상태는 실제 연결 성공이 아닙니다.
+		209 container Description: 업무 앱, ID: view-apps
+			210 heading 업무 앱, Value: 1
+				211 text 업무 앱
+			212 container 접속 요청 제공
+				213 heading 접속 요청 제공, Value: 2, ID: apps-title
+					214 text 접속 요청 제공
+				215 text 앱을 선택하면 서버에 접속 판정을 한 번 요청합니다. 실패해도 자동으로 다시 시도하지 않습니다.
+				216 text 기존 서버·에이전트의 연결을 확인할 수 없습니다. 연결 어댑터를 먼저 확인하세요.
+			217 container 판정 결과 제공
+				218 heading 판정 결과 제공, Value: 2, ID: access-title
+					219 text 판정 결과 제공
+				220 text 아직 요청한 앱이 없습니다.
+			221 container 학생 구현 표시 student/extension.mjs · renderDecision
+				222 heading 학생 구현 표시 student/extension.mjs · renderDecision, Value: 2, ID: student-decision-title
+					223 text 학생 구현 표시 student/extension.mjs · renderDecision
+				224 container
+					225 heading 업무 앱 접근 판정, Value: 3
+						226 text 업무 앱 접근 판정
+					227 text 업무 앱을 골라 접속을 요청하세요.
+
+The focused UI element is 10 tab (selected, settable, boolean) 업무 앱, Value: 1, ID: tab-apps

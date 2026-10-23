@@ -1,0 +1,72 @@
+Browser tab: 1, Title: "케셰브 · ZTNA & XDR", URL: "http://127.0.0.1:5190/".
+0 AXWebArea 케셰브 · ZTNA & XDR, URL: 127.0.0.1:5190/
+	1 link Description: 본문으로 건너뛰기, Value: 127.0.0.1:5190/#main
+	2 container
+		3 text 케셰브  ZTNA & XDR 보안 Agent
+		4 text 연결 없음
+		5 text 확인 시각 2026. 10. 23. 오후 4:21:14
+		6 button 다시 불러오기, ID: refresh
+	7 container 주 메뉴
+		8 tab group nav
+			9 tab (selectable, settable, boolean) 보호 현황, Value: 0, ID: tab-protection
+			10 tab (selectable, settable, boolean) 업무 앱, Value: 0, ID: tab-apps
+			11 tab (selected, settable, boolean) 보안 기록, Value: 1, ID: tab-records
+		12 text 메뉴는 위·아래 방향키로 이동할 수 있습니다.
+	13 container main
+		193 content list
+			194 container
+				195 AXListMarker • 
+				196 text 로그인 정보:  기존 서버·에이전트의 연결을 확인할 수 없습니다. 연결 어댑터를 먼저 확인하세요.
+			197 container
+				198 AXListMarker • 
+				199 text 업무 앱:  기존 서버·에이전트의 연결을 확인할 수 없습니다. 연결 어댑터를 먼저 확인하세요.
+			200 container
+				201 AXListMarker • 
+				202 text 보안 기록:  기존 서버·에이전트의 연결을 확인할 수 없습니다. 연결 어댑터를 먼저 확인하세요.
+			203 container
+				204 AXListMarker • 
+				205 text 기기:  기존 서버·에이전트의 연결을 확인할 수 없습니다. 연결 어댑터를 먼저 확인하세요.
+			206 container
+				207 AXListMarker • 
+				208 text 세션:  기존 서버·에이전트의 연결을 확인할 수 없습니다. 연결 어댑터를 먼저 확인하세요.
+		30 container
+			31 text 제공 공통 UI 와  학생 구현 표시 (student/extension.mjs)는 구분되어 있습니다. 제공 코드는 학생 성취로 계산되지 않으며, 예제(demo)·연결 없음 상태는 실제 연결 성공이 아닙니다.
+		209 container Description: 보안 기록, ID: view-records
+			210 heading 보안 기록, Value: 1
+				211 text 보안 기록
+			212 container 접속·XDR 기록 제공
+				213 heading 접속·XDR 기록 제공, Value: 2, ID: records-title
+					214 text 접속·XDR 기록 제공
+				215 text AI 설명은 기록 식별자만 보내며, 실패해도 기록은 그대로 유지됩니다. 조치는 원천 권한 확인과 별도의 사람 확인을 거칩니다.
+				216 content list records-list
+					217 text 기존 서버·에이전트의 연결을 확인할 수 없습니다. 연결 어댑터를 먼저 확인하세요.
+			218 container 학생 구현 표시 student/extension.mjs · renderEvents
+				219 heading 학생 구현 표시 student/extension.mjs · renderEvents, Value: 2, ID: student-events-title
+					220 text 학생 구현 표시 student/extension.mjs · renderEvents
+				221 container
+					222 heading 접속 기록·XDR 경보, Value: 3
+						223 text 접속 기록·XDR 경보
+					224 text 연결 없음(disconnected) 기록을 불러오지 못했습니다: 기존 서버·에이전트의 연결을 확인할 수 없습니다. 연결 어댑터를 먼저 확인하세요.
+			225 container 학생 AI 사건 설명 student/extension.mjs · renderExplanation
+				226 heading 학생 AI 사건 설명 student/extension.mjs · renderExplanation, Value: 2, ID: student-explanation-title
+					227 text 학생 AI 사건 설명 student/extension.mjs · renderExplanation
+				228 text 선택한 사건의 근거·규칙·현재 상태와 설명 결과를 함께 확인합니다. 조치 제안은 실행되지 않습니다.
+				229 button (disabled) AI 설명 취소, ID: ai-explanation-cancel
+				230 text 보안 기록에서 기록을 먼저 고르세요.
+			231 container 조치 준비와 원천 결과 제공
+				232 heading 조치 준비와 원천 결과 제공, Value: 2, ID: action-title
+					233 text 조치 준비와 원천 결과 제공
+				234 text 현재 선택한 사건의 AI 제안에서 조치를 직접 준비합니다. 사건·실제 대상·확인 기한을 읽은 뒤 사람 확인 버튼을 누르세요. ACK·취소·시간 초과는 효과 없음이나 완료가 아닙니다.
+				235 text 조치 제안은 아직 실행되지 않았습니다.
+				236 button (disabled) 대상과 조치를 확인했으며 집행합니다, ID: action-confirm
+				237 button (disabled) 원천 결과만 재조회, ID: action-result-load
+				238 button (disabled) 조치 화면 취소, ID: action-cancel
+			239 container 학생 조치 상태 표시 student/extension.mjs · renderAction
+				240 heading 학생 조치 상태 표시 student/extension.mjs · renderAction, Value: 2, ID: student-action-title
+					241 text 학생 조치 상태 표시 student/extension.mjs · renderAction
+				242 container
+					243 heading 보안 조치 상태, Value: 3
+						244 text 보안 조치 상태
+					245 text 아직 미실행(idle) 아직 조치가 실행되지 않았습니다. 조치가 지원되지 않는 기록에서는 제공 화면에 조치 준비 버튼이 나오지 않는 것이 정상입니다. 사람 확인·요청 전달·원천 효과 관측은 서로 다른 단계입니다. 이 학생 표시 영역은 조치 요청을 보내지 않습니다. 「조치 화면 취소」는 화면의 진행 표시를 닫는 기능이며 이미 서버에 전달된 조치 효과를 되돌리지 않습니다.
+
+The focused UI element is 11 tab (selected, settable, boolean) 보안 기록, Value: 1, ID: tab-records
