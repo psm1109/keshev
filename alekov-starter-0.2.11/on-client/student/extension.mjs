@@ -554,7 +554,131 @@ export function createStudentView() {
 
       return root;
     },
-    renderVulnerabilities() { return '학생 구현 대기: 정확한 설치 버전·OSV 출처·조회 시각·부분 결과·조회 실패를 구분하세요.'; },
+    renderVulnerabilities({ status, mode, data, error } = {}) {
+      const root = document.createElement('section');
+      const appendText = (parent, tag, text) => {
+        const node = document.createElement(tag);
+        node.textContent = String(text);
+        parent.append(node);
+        return node;
+      };
+      const valueText = (value, fallback = '확인 불가') =>
+        value === undefined || value === null || value === '' ? fallback : String(value);
+      const statusLabels = {
+        complete: '모두 조회(complete)',
+        partial: '일부 조회 실패(partial)',
+        not_checked: '아직 조회 안 함(not_checked)',
+        not_configured: '조회 준비 미완료(not_configured)',
+        unverifiable: 'lock 파일 확인 불가(unverifiable)',
+      };
+      const packageStatus = (pkg) => {
+        if (pkg.status === 'known_vulnerabilities') return '알려진 항목 있음(known_vulnerabilities)';
+        if (pkg.status === 'none_found') return '알려진 항목 없음(none_found)';
+        if (pkg.status === 'unverifiable' && Array.isArray(pkg.vulnerabilities) && pkg.vulnerabilities.length > 0) {
+          return '일부 확인·전체 조회 확인 불가(unverifiable)';
+        }
+        return '조회 확인 불가(unverifiable)';
+      };
+
+      appendText(root, 'h3', '설치 패키지·알려진 취약점 조회');
+      if (status === 'idle') {
+        appendText(root, 'p', '조회 전');
+        return root;
+      }
+      if (status === 'loading') {
+        appendText(root, 'p', '조회 중');
+        return root;
+      }
+      if (status === 'error') {
+        appendText(root, 'p', `조회 실패: ${valueText(error?.message, '오류 메시지를 확인할 수 없습니다.')}`);
+        return root;
+      }
+      if (status !== 'ok') {
+        appendText(root, 'p', '조회 결과 확인 불가: 상태값을 확인할 수 없습니다.');
+        return root;
+      }
+      if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        appendText(root, 'p', '조회 결과 확인 불가: 응답 형식을 확인할 수 없습니다.');
+        return root;
+      }
+
+      const scanStatus = typeof data.status === 'string' ? data.status : 'unverifiable';
+      appendText(root, 'p', statusLabels[scanStatus] || `조회 상태 확인 불가(${scanStatus})`);
+      appendText(root, 'p', '결과 범위: package-lock.json과 설치된 node_modules의 메타데이터를 대조한 패키지 버전의 OSV 조회입니다.');
+
+      if (data.lockfileVersion !== undefined && data.lockfileVersion !== null) {
+        appendText(root, 'p', `잠금 파일(package-lock.json) 버전: ${valueText(data.lockfileVersion)}`);
+      }
+      if (data.lockfileHash !== undefined && data.lockfileHash !== null && data.lockfileHash !== '') {
+        appendText(root, 'p', `잠금 파일 해시(lockfileHash): ${valueText(data.lockfileHash)}`);
+      }
+      if (data.checkedAt !== undefined && data.checkedAt !== null && data.checkedAt !== '') {
+        appendText(root, 'p', `전체 조회 시각(checkedAt): ${valueText(data.checkedAt)}`);
+      }
+
+      if (scanStatus === 'not_checked') {
+        appendText(root, 'p', '승인된 공개 조회 대상 패키지가 없어 조회하지 않았습니다. 이는 취약점 없음이라는 뜻이 아닙니다.');
+      } else if (scanStatus === 'not_configured') {
+        appendText(root, 'p', '프로젝트 조회 설정 또는 허용된 공개 패키지 목록이 준비되지 않아 조회하지 않았습니다. 이는 취약점 없음이라는 뜻이 아닙니다.');
+      } else if (scanStatus === 'unverifiable') {
+        appendText(root, 'p', 'package-lock.json 또는 설치 목록을 확인할 수 없어 결과를 검증하지 못했습니다. 이는 취약점 없음이라는 뜻이 아닙니다.');
+      } else if (scanStatus === 'partial') {
+        appendText(root, 'p', '일부 패키지 조회에 실패했습니다. 이미 확인된 취약점 항목은 아래에 유지하며, 전체 조회 결과로 해석하지 마세요.');
+      }
+
+      if (!Array.isArray(data.packages)) {
+        appendText(root, 'p', '패키지 조회 결과 목록을 확인할 수 없습니다.');
+        return root;
+      }
+      if (data.packages.length === 0) {
+        if (scanStatus === 'complete') appendText(root, 'p', '표시할 패키지 조회 결과가 없습니다.');
+        return root;
+      }
+
+      const table = document.createElement('table');
+      const head = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      for (const label of ['패키지', '설치된 정확한 버전', '조회 상태', '출처', '패키지 확인 시각', '취약점 ID·수정 시각']) {
+        appendText(headerRow, 'th', label);
+      }
+      head.append(headerRow);
+      table.append(head);
+      const body = document.createElement('tbody');
+
+      for (const pkg of data.packages) {
+        if (!pkg || typeof pkg !== 'object' || Array.isArray(pkg)) continue;
+        const row = document.createElement('tr');
+        row.setAttribute('data-student-package-name', valueText(pkg.name, ''));
+        row.setAttribute('data-student-package-version', valueText(pkg.version, ''));
+        appendText(row, 'td', valueText(pkg.name));
+        appendText(row, 'td', valueText(pkg.version));
+        appendText(row, 'td', packageStatus(pkg));
+        appendText(row, 'td', valueText(pkg.source));
+        appendText(row, 'td', valueText(pkg.checkedAt));
+
+        const findingsCell = document.createElement('td');
+        if (Array.isArray(pkg.vulnerabilities) && pkg.vulnerabilities.length > 0) {
+          const findings = document.createElement('ul');
+          for (const finding of pkg.vulnerabilities) {
+            if (!finding || typeof finding !== 'object' || Array.isArray(finding)) continue;
+            appendText(findings, 'li', `ID: ${valueText(finding.id)} · 수정 시각(modified): ${valueText(finding.modified)}`);
+          }
+          findingsCell.append(findings);
+        } else if (pkg.status === 'none_found') {
+          appendText(findingsCell, 'span', '조회 범위에서 알려진 취약점 항목이 없습니다. 패키지나 앱 전체의 안전을 보장하지 않습니다.');
+        } else if (pkg.status === 'unverifiable') {
+          appendText(findingsCell, 'span', '조회 확인 불가: 취약점 없음으로 판단할 수 없습니다.');
+        } else {
+          appendText(findingsCell, 'span', '취약점 항목을 확인할 수 없습니다.');
+        }
+        row.append(findingsCell);
+        body.append(row);
+      }
+      table.append(body);
+      root.append(table);
+      appendText(root, 'p', 'OSV 조회 결과에 알려진 항목이 없더라도 해당 패키지나 앱 전체가 안전하다는 보장은 아닙니다.');
+      return root;
+    },
     renderAiConnection({ status, mode, data, error, checkedAt, explanationAccepted } = {}) {
       const root = document.createElement('section');
       const appendText = (tag, text) => {
