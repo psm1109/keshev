@@ -1,6 +1,187 @@
 // 이 파일은 학생이 같은 프로젝트에서 이어서 구현합니다.
 // 제공 UI를 받은 것만으로 단계 완료를 인정하지 않습니다.
-export function createStudentView() {
+// 학생 개선: 제공 PC 조회 API를 요약·시각화한다. 수집·기록은 이 탭의 메모리에만 둔다.
+function createPcDashboard(api, onChange) {
+  const limit = 60;
+  const history = [], records = [];
+  let phase = 'idle', current = null, expiryTimer, mountedRoot, renderView;
+  // 내 조회로 다른 학생 영역의 필터·선택을 다시 만들지 않는다.
+  function notify() {
+    const previous = mountedRoot;
+    if (!previous?.isConnected) {onChange(); return;}
+    const hadFocus = previous.contains(document.activeElement);
+    const next = renderView();
+    previous.replaceWith(next);
+    if (hadFocus) {
+      const button = next.querySelector('button');
+      if (!button.disabled) button.focus();
+      else {next.tabIndex = -1; next.focus();}
+    }
+  }
+  const titles = {cpu: 'CPU', memory: '메모리', disk: '디스크 여유', network: '네트워크 구성'};
+  const finite = n => typeof n === 'number' && Number.isFinite(n) && n >= 0;
+  const percent = n => finite(n) && n <= 100;
+  const integer = n => Number.isSafeInteger(n) && n >= 0;
+  const time = value => new Date(value).toLocaleString('ko-KR', {timeZone: 'Asia/Seoul', hour12: false});
+  const gb = value => `${(value / 1024 ** 3).toFixed(1)} GB`;
+  const reasons = {unsupported: '운영체제 미지원', permission_denied: '읽기 권한 부족', timeout: '조회 시간 초과', cancelled: '조회 취소', query_failed: '조회 실패', invalid_response: '응답 값 확인 불가'};
+  const make = (tag, text, cls) => {
+    const node = document.createElement(tag);
+    if (text !== undefined) node.textContent = text;
+    if (cls) node.className = cls;
+    return node;
+  };
+  function normalize(data) {
+    const measured = Date.parse(data?.measuredAt);
+    if (data?.schema !== 'aleph.on.pc-status.v1' || data.source !== 'local-pc'
+      || !/(?:Z|[+-]\d{2}:\d{2})$/.test(data.measuredAt) || !Number.isFinite(measured)
+      || Date.now() - measured > 60000 || measured - Date.now() > 5000) throw Error('INVALID_RESPONSE');
+    const metrics = {}, notes = [];
+    for (const key of Object.keys(titles)) {
+      const m = data.metrics?.[key];
+      let value = null, text = '확인 불가';
+      if (m?.state === 'ok') {
+        if (key === 'cpu' && percent(m.usagePercent)) {value = m.usagePercent; text = `${value.toFixed(1)}% 사용`;}
+        if (key === 'memory' && finite(m.usedBytes) && finite(m.totalBytes) && m.totalBytes > 0 && m.usedBytes <= m.totalBytes) {
+          value = m.usedBytes / m.totalBytes * 100; text = `${value.toFixed(1)}% 사용`;
+        }
+        if (key === 'disk' && finite(m.freeBytes) && finite(m.totalBytes) && m.totalBytes > 0 && m.freeBytes <= m.totalBytes) {
+          value = m.freeBytes / m.totalBytes * 100; text = `${gb(m.freeBytes)} · ${value.toFixed(1)}% 여유`;
+        }
+        if (key === 'network' && integer(m.interfaceCount) && integer(m.ipv4Count)) {
+          value = m.interfaceCount; text = `인터페이스 ${value}개 · IPv4 ${m.ipv4Count}개`;
+        }
+      }
+      metrics[key] = {value, text, reason: reasons[m?.reason] || '응답 값 확인 불가'};
+      if (value === null) notes.push(`${titles[key]}: ${metrics[key].reason}`);
+    }
+    if (metrics.cpu.value >= 85) notes.push('CPU 사용률 85% 이상: 실행 중인 앱을 확인하세요.');
+    if (metrics.memory.value >= 85) notes.push('메모리 사용률 85% 이상: 작업을 저장하고 사용 중인 앱을 확인하세요.');
+    if (metrics.disk.value !== null && metrics.disk.value < 10) notes.push('디스크 여유 10% 미만: 파일을 확인하고 백업하세요. 자동 삭제하지 않습니다.');
+    return {measuredAt: data.measuredAt, metrics, notes};
+  }
+  async function read() {
+    if (phase === 'loading') return;
+    clearTimeout(expiryTimer);
+    phase = 'loading'; current = null; notify();
+    try {
+      const result = await api?.get('/api/pc/status');
+      if (result?.ok !== true) throw Error(result?.error?.code === 'TIMEOUT' ? 'TIMEOUT' : 'REQUEST_FAILED');
+      current = normalize(result.data);
+      phase = 'ok';
+      history.push({at: current.measuredAt, cpu: current.metrics.cpu.value, memory: current.metrics.memory.value});
+      const available = Object.values(current.metrics).filter(m => m.value !== null).length;
+      records.unshift({at: current.measuredAt, text: `${available === 4 ? '조회 성공' : '부분 결과'} · ${available}/4항목 확인`, notes: current.notes});
+      expiryTimer = setTimeout(notify, Math.max(1, 60001 - (Date.now() - Date.parse(current.measuredAt))));
+    } catch (error) {
+      phase = 'error'; current = null;
+      const at = new Date().toISOString();
+      history.push({at, cpu: null, memory: null});
+      records.unshift({at, text: '조회 실패 · 현재 값 확인 불가', notes: [error?.message === 'TIMEOUT' ? '시간 초과: 서버가 실행 중인지 확인하고 직접 다시 조회하세요.' : '응답이나 연결을 확인하지 못했습니다. 서버 상태를 확인하고 직접 다시 조회하세요.']});
+    }
+    if (history.length > limit) history.shift();
+    if (records.length > limit) records.pop();
+    notify();
+  }
+  function chart() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    const add = (tag, attrs, text) => {
+      const node = document.createElementNS(ns, tag);
+      for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+      if (text) node.textContent = text;
+      svg.append(node); return node;
+    };
+    svg.setAttribute('viewBox', '0 0 640 150'); svg.setAttribute('width', '100%');
+    svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', 'CPU와 메모리 사용률 추이. 정확한 시각과 값은 아래 표에서 확인하세요.');
+    add('title', {}, '실측 CPU·메모리 사용률 추이');
+    add('desc', {}, '세로축 0~100%, 가로축 실제 측정 시각. 실패한 구간은 선을 잇지 않습니다.');
+    for (const value of [0, 50, 100]) {
+      const y = 130 - value;
+      add('line', {x1: 40, y1: y, x2: 625, y2: y, stroke: '#cbd5e1'});
+      add('text', {x: 2, y: y + 4, fill: 'currentColor', 'font-size': 12}, `${value}%`);
+    }
+    const rows = history.slice(-12), start = Date.parse(rows[0].at), duration = Math.max(1, Date.parse(rows.at(-1).at) - start);
+    for (const [key, color] of [['cpu', 'var(--accent)'], ['memory', '#7950a3']]) {
+      let points = [];
+      const flush = () => {if (points.length) add('polyline', {points: points.join(' '), fill: 'none', stroke: color, 'stroke-width': 2}); points = [];};
+      for (const row of rows) {
+        if (row[key] === null) {flush(); continue;}
+        const x = 40 + (Date.parse(row.at) - start) / duration * 585, y = 130 - row[key];
+        points.push(`${x},${y}`); add('circle', {cx: x, cy: y, r: 3, fill: color});
+      }
+      flush();
+    }
+    return svg;
+  }
+  return renderView = function render() {
+    const root = make('section'); root.dataset.studentDashboard = '';
+    mountedRoot = root;
+    root.append(make('h3', '케셰브 관제 대시보드'));
+    root.append(make('p', '학생 개선: 네 가지 요약 · CPU·메모리 추이 · 조회 근거 기록. 측정은 제공 API를 사용합니다.', 'muted'));
+    root.append(make('p', '출처: 앱 서버가 실행되는 기기 실측. 클라우드에서 실행하면 사용자 PC의 값이 아닙니다. 예시 값은 사용하지 않습니다.', 'muted'));
+    const refresh = make('button', phase === 'loading' ? '실측 조회 중…' : '상태 조회·기록', 'btn'); refresh.type = 'button';
+    refresh.disabled = phase === 'loading'; refresh.addEventListener('click', read); root.append(refresh);
+    const stale = current && Date.now() - Date.parse(current.measuredAt) > 60000;
+    const status = make('p', phase === 'idle' ? '조회 전 · 버튼을 눌러 수집을 시작하세요.'
+      : phase === 'loading' ? '조회 중 · 이전 값을 현재 값으로 표시하지 않습니다.'
+      : phase === 'error' ? '조회 실패 · 현재 값 확인 불가. 아래 기록을 확인하고 다시 조회하세요.'
+      : `마지막 실측: ${time(current.measuredAt)} (한국 시간) · ${stale ? '오래됨: 60초 경과, 다시 조회하세요.' : '마지막 조회 결과이며 실시간 감시는 아닙니다.'}`);
+    status.setAttribute('role', 'status'); root.append(status);
+    const cards = make('div', undefined, 'grid-2');
+    for (const pair of [['cpu', 'memory'], ['disk', 'network']]) {
+      const group = make('div', undefined, 'grid-2');
+      for (const key of pair) {
+        const card = make('article', undefined, 'card'); card.dataset.metric = key;
+        const metric = current?.metrics[key], usable = phase === 'ok' && !stale;
+        card.append(make('h4', titles[key]), make('p', usable ? metric.text : phase === 'loading' ? '조회 중' : stale ? '오래된 값 · 재조회 필요' : '확인 불가'));
+        card.append(make('p', usable && metric.value === null ? metric.reason
+          : key === 'network' ? '구성 개수이며 속도·접속 성공·안전 판정이 아닙니다.'
+          : key === 'memory' ? '실측 사용량 ÷ 전체 용량으로 계산한 비율입니다.'
+          : key === 'cpu' ? '짧은 구간에서 측정한 사용률입니다.' : '앱이 있는 디스크의 여유 공간입니다.', 'muted'));
+        group.append(card);
+      }
+      cards.append(group);
+    }
+    root.append(cards);
+    if (phase === 'ok' && !stale && current.notes.length) {
+      const note = make('div'); note.append(make('h4', '부분 결과·주의할 관측'));
+      const list = make('ul'); for (const text of current.notes) list.append(make('li', text)); note.append(list); root.append(note);
+    }
+    root.append(make('p', 'Windows 방화벽·Windows 기록은 아래 제공 「내 PC 상태」에서 별도로 확인합니다. 이 대시보드의 네 항목으로 PC 전체 안전을 판단하지 않습니다.', 'muted'));
+    root.append(make('h4', 'CPU·메모리 추이'));
+    root.append(make('p', '최근 12회 표시 · CPU: 강조색, 메모리: 보라색. 수집 전 구간은 만들지 않고 실패 구간은 선을 잇지 않습니다.', 'muted'));
+    if (!history.length) root.append(make('p', '아직 수집한 값이 없습니다. 두 번 이상 조회하면 변화를 비교할 수 있습니다.'));
+    else {
+      root.append(chart());
+      const table = make('table'); table.append(make('caption', '최근 측정 기록 (한국 시간) · 과거 관측이며 현재 값이 아닙니다.'));
+      const head = make('thead'), header = make('tr');
+      for (const label of ['조회 시각', 'CPU 사용률', '메모리 사용률']) {const th = make('th', label); th.scope = 'col'; header.append(th);}
+      head.append(header); table.append(head);
+      const body = make('tbody');
+      for (const row of history.slice(-12)) {
+        const tr = make('tr'); tr.append(make('td', time(row.at)));
+        for (const key of ['cpu', 'memory']) tr.append(make('td', row[key] === null ? '확인 불가' : `${row[key].toFixed(1)}%`));
+        body.append(tr);
+      }
+      table.append(body); root.append(table);
+    }
+    root.append(make('h4', '조회·이상 징후 근거 기록'));
+    root.append(make('p', '이 탭에서 직접 조회한 기록을 최신순으로 최대 60회 보관합니다. XDR 경보·침해 판정이 아닙니다. 새로고침하면 기록이 초기화됩니다.', 'muted'));
+    if (!records.length) root.append(make('p', '아직 조회 기록이 없습니다.'));
+    const list = make('ol');
+    for (const row of records) {
+      const item = make('li'); item.append(make('p', `${time(row.at)} (한국 시간) · ${row.text}`));
+      for (const text of row.notes) item.append(make('p', text));
+      list.append(item);
+    }
+    root.append(list);
+    return root;
+  };
+}
+
+export function createStudentView({ api, onChange = () => {} } = {}) {
+  const renderPcDashboard = createPcDashboard(api, onChange);
   return {
     renderIdentity({ me, devices, sessions }) {
       const root = document.createElement('div');
@@ -398,6 +579,7 @@ export function createStudentView() {
     },
     renderStatus({ devices, sessions, notifications, diagnostics, mode } = {}) {
       const root = document.createElement('section');
+      root.append(renderPcDashboard());
       const appendText = (parent, tag, text) => {
         const node = document.createElement(tag);
         node.textContent = String(text);
