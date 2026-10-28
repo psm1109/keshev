@@ -338,12 +338,54 @@ function createPcDashboard(api, onChange) {
     if (autoRefresh && !document.hidden) void read();
     else notify();
   });
+  function serviceSection() {
+    const section = make('section', undefined, 'card pc-service-section'); section.id = 'pc-service-section';
+    section.append(make('h3', '서비스 연결·사용량·비용'));
+    const list = make('div', undefined, 'pc-service-grid');
+    for (const name of ['GitHub', 'Vercel', 'Railway', 'Supabase']) {
+      const item = make('article', undefined, 'pc-service-item'); item.id = `pc-service-${name.toLowerCase()}`;
+      item.append(make('h4', `${name} · 연결 전 · 확인 불가`));
+      item.append(make('p', '계정 보안 · 사용량 · 월 비용 · 취약점: 확인 불가', 'muted'));
+      list.append(item);
+    }
+    section.append(list); return section;
+  }
+  function evidenceSection(stale) {
+    const section = make('section', undefined, 'card pc-evidence-section'); section.id = 'pc-evidence-section';
+    section.append(make('h3', '이상 징후 근거'));
+    const status = make('p', !current ? phase === 'error' ? '조회 실패 · 확인 불가' : '조회 전 · 확인 불가'
+      : `${phase === 'error' ? '갱신 실패 · 이전 조회' : stale ? '오래된 조회' : 'PC 실측'} · ${time(current.measuredAt)} (한국 시간)`, 'muted');
+    status.textContent += ' · 침해 판정 아님';
+    section.append(status);
+    if (!current) return section;
+    const m = current.metrics, rows = [];
+    for (const key of ['cpu', 'memory']) {
+      if (finite(m[key].value) && m[key].value >= 85) rows.push({text: `${titles[key]} 사용률 ${m[key].value.toFixed(1)}%`, limit: key === 'cpu' ? '짧은 구간의 사용률이며 원인은 확인하지 않았습니다.' : '전체 용량 대비 사용률이며 원인은 확인하지 않았습니다.'});
+    }
+    if (finite(m.disk.value) && m.disk.value < 10) rows.push({text: `디스크 여유 ${m.disk.value.toFixed(1)}%`, limit: '앱이 있는 디스크만 확인했습니다.'});
+    const disabled = m.firewall.profiles?.filter(value => value.endsWith('꺼짐')) || [];
+    if (disabled.length) rows.push({text: `방화벽: ${disabled.join(' · ')}`, limit: 'Windows 방화벽 프로필 설정만 확인했습니다.'});
+    const missing = ['cpu', 'memory', 'disk'].filter(key => m[key].value === null).map(key => `${titles[key]}: ${m[key].reason}`);
+    if (!m.firewall.profiles) missing.push(`방화벽: ${m.firewall.detail}`);
+    if (missing.length) rows.push({text: `확인 불가 · ${missing.join(' · ')}`, limit: '조회하지 못한 항목은 판단할 수 없습니다.'});
+    if (!rows.length) section.append(make('p', '표시할 관찰이 없습니다.', 'muted'));
+    else {
+      const list = make('ul', undefined, 'pc-evidence-list');
+      for (const row of rows) {
+        const item = make('li'); item.append(make('strong', row.text), make('span', `출처: PC 실측 · ${time(current.measuredAt)} · ${row.limit}`, 'muted'));
+        list.append(item);
+      }
+      section.append(list);
+    }
+    return section;
+  }
   return renderView = function render() {
-    const root = make('section', undefined, 'card'); root.dataset.studentDashboard = '';
+    const root = make('div'); root.dataset.studentDashboard = '';
     root.setAttribute('aria-label', '내 PC 상태 대시보드 · 학생 개선');
     mountedRoot = root;
-    root.append(make('h3', '내 PC 상태 대시보드'));
-    root.append(make('p', '서버를 다른 기기에서 실행하면 사용자 PC의 실측값이 아닙니다. 네트워크는 활성 어댑터의 송수신 속도이며 회선 최대 속도가 아닙니다.', 'muted'));
+    const dashboard = make('section', undefined, 'card'); dashboard.id = 'pc-main-dashboard'; root.append(dashboard);
+    dashboard.append(make('h3', '내 PC 상태 대시보드'));
+    dashboard.append(make('p', '서버를 다른 기기에서 실행하면 사용자 PC의 실측값이 아닙니다. 네트워크는 활성 어댑터의 송수신 속도이며 회선 최대 속도가 아닙니다.', 'muted'));
     const loading = phase === 'idle' || phase === 'loading';
     const controls = make('div', undefined, 'row');
     const refresh = make('button', loading ? current ? '갱신 중…' : '실측 조회 중…' : '상태 조회', 'btn pc-refresh'); refresh.type = 'button';
@@ -357,7 +399,7 @@ function createPcDashboard(api, onChange) {
       if (autoRefresh && !document.hidden && !pageHidden && phase !== 'loading') void read();
       else {notify(); scheduleAutoRefresh();}
     });
-    autoLabel.append(auto, make('span', ' 10초마다 자동 조회')); controls.append(autoLabel); root.append(controls);
+    autoLabel.append(auto, make('span', ' 10초마다 자동 조회')); controls.append(autoLabel); dashboard.append(controls);
     const stale = current && Date.now() - Date.parse(current.measuredAt) > 60000;
     const autoStatus = autoRefresh ? document.hidden || pageHidden ? '화면 숨김 · 자동 조회 일시 중지' : '10초마다 자동 조회 중'
       : '마지막 조회 결과이며 실시간 감시는 아닙니다.';
@@ -366,7 +408,7 @@ function createPcDashboard(api, onChange) {
       : phase === 'error' ? `조회 실패 · 현재 값 확인 불가. ${lastError} ${autoRefresh ? autoStatus : ''}`
       : '첫 측정값을 불러오고 있습니다.', 'pc-measurement-status');
     status.title = status.textContent;
-    status.setAttribute('role', 'status'); root.append(status);
+    status.setAttribute('role', 'status'); dashboard.append(status);
     const cards = make('div', undefined, 'pc-metrics-grid');
     cards.tabIndex = 0; cards.setAttribute('role', 'region'); cards.setAttribute('aria-label', 'PC 상태 카드 · 가로 스크롤');
     for (const key of ['cpu', 'memory', 'disk', 'network']) {
@@ -426,8 +468,9 @@ function createPcDashboard(api, onChange) {
       if (key === 'events') card.append(make('p', '이 건수는 침해나 공격 탐지 결과가 아닙니다.', 'muted pc-extra-disclaimer'));
       cards.append(card);
     }
-    root.append(cards);
-    root.append(indicatorsSection());
+    dashboard.append(cards);
+    dashboard.append(indicatorsSection());
+    root.append(serviceSection(), evidenceSection(stale));
     return root;
   };
 }
@@ -850,7 +893,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       renderList();
       return root;
     },
-    renderStatus({ notifications, diagnostics, mode } = {}) {
+    renderStatus({ notifications, diagnostics } = {}) {
       const root = document.createElement('section');
       root.append(renderPcDashboard());
       const appendText = (parent, tag, text) => {
@@ -877,8 +920,6 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       };
 
       const support = document.createElement('section'); support.className = 'student-support';
-      appendText(support, 'h3', '알림·도움정보');
-      if (modeLabels[mode]) appendText(support, 'p', `연결 상태: ${modeLabels[mode]}`);
       const supportSections = document.createElement('div'); supportSections.className = 'student-support-grid';
 
 

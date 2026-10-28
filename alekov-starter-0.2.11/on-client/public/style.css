@@ -6,6 +6,7 @@
   --bg: #f5f6f8;
   --surface: #ffffff;
   --border: #d9dde3;
+  --category-border: #98a5b5;
   --text: #1c2430;
   --muted: #5a6472;
   --accent: #2357c6;
@@ -37,6 +38,7 @@
   --bg: #0f172a;
   --surface: #1e293b;
   --border: #475569;
+  --category-border: #7b8ca4;
   --text: #e2e8f0;
   --muted: #a8b6cb;
   --accent: #60a5fa;
@@ -136,6 +138,13 @@ h4 { font-size: 0.9rem; margin: 0 0 4px; color: var(--muted); }
 [data-student-dashboard] .pc-history-list summary { cursor: pointer; }
 [data-student-dashboard] .pc-history-values { margin: 8px 0 0; padding-left: 20px; }
 [data-student-dashboard] .pc-history-pager { margin-top: 10px; align-items: center; flex-shrink: 0; }
+[data-student-dashboard] .pc-service-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+[data-student-dashboard] .pc-service-item { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
+[data-student-dashboard] .pc-service-item h4 { margin: 0; overflow-wrap: anywhere; }
+[data-student-dashboard] .pc-service-item p { margin: 8px 0 0; }
+[data-student-dashboard] .pc-evidence-section > p { margin: 8px 0; }
+[data-student-dashboard] .pc-evidence-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+[data-student-dashboard] .pc-evidence-list li { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
 
 :focus-visible { outline: none; box-shadow: var(--focus); }
 
@@ -235,6 +244,8 @@ main:focus { outline: none; }
 }
 .grid-2 > .card { margin-bottom: 0; }
 .card.student { border-left: 4px solid var(--student); }
+.view > .card, .view > .grid-2 > .card { border-top-color: var(--category-border); border-right-color: var(--category-border); border-bottom-color: var(--category-border); }
+.view > .card:not(.student), .view > .grid-2 > .card:not(.student) { border-left-color: var(--category-border); }
 
 .tag {
   display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 500;
@@ -310,8 +321,6 @@ main:focus { outline: none; }
 .student-section dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 8px 0 0; }
 .student-section dd { margin: 0; overflow-wrap: anywhere; }
 .student-support { margin-top: 16px; }
-.student-support > h3 { margin-bottom: 6px; }
-.student-support > p { margin: 6px 0 10px; }
 .student-support-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .student-notifications { list-style: none; display: grid; gap: 6px; padding: 0; margin: 0; }
 .student-notifications details { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; }
@@ -393,6 +402,7 @@ main:focus { outline: none; }
   [data-student-dashboard] .pc-metrics-grid { grid-auto-columns: calc((100% - 16px) / 2); }
 }
 @media (max-width: 860px) {
+  [data-student-dashboard] .pc-service-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .student-diagnostics-layout { grid-template-columns: minmax(0, 1fr); }
   [data-student-dashboard] .pc-indicators-grid { grid-template-columns: minmax(0, 1fr); }
   .topbar { padding: 8px 16px; }
@@ -405,6 +415,7 @@ main:focus { outline: none; }
   .connect-art { flex: none; }
 }
 @media (max-width: 600px) {
+  [data-student-dashboard] .pc-service-grid { grid-template-columns: minmax(0, 1fr); }
   [data-student-dashboard] .pc-metrics-grid { grid-auto-columns: 100%; }
   #pc-status .pc-metrics { grid-template-columns: minmax(0, 1fr); }
   #pc-status .pc-auto { margin-left: 0; }

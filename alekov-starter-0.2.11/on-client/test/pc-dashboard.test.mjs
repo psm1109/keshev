@@ -329,3 +329,26 @@ test('loading, success, overload, missing data and failures retain the same card
   assert.equal(all(ui.card('cpu')).some(node => node.getAttribute?.('role') === 'meter'), false);
   pending = ui.button().fire('click'); ui.finish(4, 0, false); await pending; checkFrames();
 });
+
+test('service placeholders and PC evidence distinguish actual, stale, failed and unavailable observations', async () => {
+  const ui = setup(); await flush();
+  const find = id => all(ui.root).find(node => node.id === id);
+  assert.equal(all(find('pc-service-section')).filter(node => node.localName === 'article').length, 4);
+  assert.match(find('pc-service-section').textContent, /GitHub · 연결 전 · 확인 불가/);
+  assert.doesNotMatch(find('pc-service-section').textContent, /0원|안전|연결됨/);
+  assert.match(find('pc-evidence-section').textContent, /조회 전 · 확인 불가/);
+  const firewall = {state: 'ok', profiles: [{name: 'Domain', enabled: true}, {name: 'Private', enabled: false}, {name: 'Public', enabled: true}]};
+  ui.finish(0, 90, true, 88, undefined, {disk: {state: 'ok', freeBytes: 5, totalBytes: 100}, firewall}); await flush();
+  const evidence = find('pc-evidence-section');
+  assert.match(evidence.textContent, /PC 실측.*CPU 사용률 90.0%.*메모리 사용률 88.0%.*디스크 여유 5.0%.*Private 꺼짐/);
+  assert.match(evidence.textContent, /출처: PC 실측/); assert.match(evidence.textContent, /원인은 확인하지 않았습니다/);
+  assert.doesNotMatch(evidence.textContent, /공격 감지|침해 확정|안전합니다/);
+  ui.advance(61000); [...ui.timers.values()].find(timer => timer.delay > 60000).fn();
+  assert.match(evidence.textContent, /오래된 조회/);
+  let pending = ui.button().fire('click'); ui.finish(1, 0, false); await pending;
+  assert.match(evidence.textContent, /갱신 실패 · 이전 조회/); assert.match(evidence.textContent, /CPU 사용률 90.0%/);
+  pending = ui.button().fire('click'); ui.advance(1000);
+  ui.finish(2, null, true, 50, undefined, {firewall: {state: 'unavailable', reason: 'permission_denied'}}); await pending;
+  assert.match(evidence.textContent, /확인 불가 · CPU: 조회 시간 초과.*방화벽: 읽기 권한 부족/);
+  assert.doesNotMatch(evidence.textContent, /CPU 사용률 90.0%/);
+});
