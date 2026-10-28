@@ -6,6 +6,7 @@ import {promisify} from 'node:util';
 import {fileURLToPath} from 'node:url';
 import {join} from 'node:path';
 import {setTimeout as wait} from 'node:timers/promises';
+import {createNetworkTrafficReader} from './network-traffic.mjs';
 
 const execute = promisify(execFile);
 const diskRoot = fileURLToPath(new URL('../', import.meta.url));
@@ -73,7 +74,7 @@ export function normalizeWindowsStatus(raw) {
   return result;
 }
 
-export function createPcStatusReader({system = os, disk = statfs, run = execute, platform = os.platform(), clock = () => new Date(), pause = wait} = {}) {
+export function createPcStatusReader({system = os, disk = statfs, run = execute, platform = os.platform(), clock = () => new Date(), pause = wait, trafficReader = createNetworkTrafficReader({run, platform})} = {}) {
   return async function read({signal, directory = diskRoot} = {}) {
     signal?.throwIfAborted();
     const metrics = {};
@@ -89,6 +90,10 @@ export function createPcStatusReader({system = os, disk = statfs, run = execute,
       const entries = Object.values(system.networkInterfaces()).filter(Array.isArray).map(rows => rows.filter(row => row.internal === false));
       metrics.network = {state: 'ok', interfaceCount: entries.filter(rows => rows.length).length, ipv4Count: entries.flat().filter(row => row.family === 'IPv4' || row.family === 4).length};
     } catch {metrics.network = missing('query_failed');}
+    const traffic = (async () => {
+      try {metrics.network.traffic = await trafficReader({signal});}
+      catch {metrics.network.traffic = missing(signal?.aborted ? 'cancelled' : 'query_failed');}
+    })();
     const drive = (async () => {
       try {const d = await disk(directory); const totalBytes = Number(d.blocks) * Number(d.bsize), freeBytes = Number(d.bavail) * Number(d.bsize);
         metrics.disk = finite(totalBytes) && totalBytes > 0 && finite(freeBytes) && freeBytes <= totalBytes ? {state: 'ok', totalBytes, freeBytes} : missing('invalid_response');}
@@ -105,7 +110,7 @@ export function createPcStatusReader({system = os, disk = statfs, run = execute,
         metrics.firewall = missing(reason); metrics.events = missing(reason);
       }
     })();
-    await Promise.all([cpu, drive, windows]); signal?.throwIfAborted();
+    await Promise.all([cpu, drive, windows, traffic]); signal?.throwIfAborted();
     return {schema: 'aleph.on.pc-status.v1', measuredAt: clock().toISOString(), source: 'local-pc', metrics};
   };
 }

@@ -11,6 +11,7 @@
   --accent: #2357c6;
   --accent-soft: #e7eefc;
   --accent-ink: #ffffff;
+  --network-download: #2357c6;
   --allow: #1d7a3e;
   --allow-soft: #e5f4ea;
   --deny: #b42318;
@@ -41,6 +42,7 @@
   --accent: #60a5fa;
   --accent-soft: #26384f;
   --accent-ink: #0f172a;
+  --network-download: #60a5fa;
   --allow: #86efac;
   --allow-soft: #143827;
   --deny: #fda4af;
@@ -74,6 +76,11 @@ h4 { font-size: 0.9rem; margin: 0 0 4px; color: var(--muted); }
 #pc-status .pc-value { font-size: 1.15rem; font-weight: 650; margin: 8px 0; overflow-wrap: anywhere; }
 #pc-status .pc-metric[data-state="unavailable"] .pc-value { color: var(--unknown); }
 [data-student-dashboard] .pc-usage-fill { transition: width 240ms ease-out; }
+.pc-network-value { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; margin: 8px 0; }
+.pc-network-legend { justify-content: flex-start; margin: 4px 0; }
+.pc-network-upload { color: var(--allow); }
+.pc-network-download { color: var(--network-download); }
+.pc-network-readings small { font-size: 0.8rem; white-space: nowrap; }
 [data-student-dashboard] [data-overload="elevated"] { border-color: var(--challenge); }
 [data-student-dashboard] [data-overload="sustained"] { border-color: var(--deny); background: var(--deny-soft); }
 [data-student-dashboard] .pc-overload-notice { display: flex; align-items: baseline; gap: 6px; margin-bottom: 0; font-size: 0.875rem; color: var(--muted); }
@@ -81,6 +88,37 @@ h4 { font-size: 0.9rem; margin: 0 0 4px; color: var(--muted); }
 [data-student-dashboard] [data-overload="sustained"] .pc-overload-notice { color: var(--deny); font-weight: 600; }
 [data-student-dashboard] [data-overload="elevated"] .pc-usage-fill { fill: var(--challenge); }
 [data-student-dashboard] [data-overload="sustained"] .pc-usage-fill { fill: var(--deny); }
+
+/* 측정값·경고 유무와 관계없이 같은 틀을 유지한다. */
+[data-student-dashboard] .pc-refresh { width: 132px; flex: 0 0 132px; white-space: nowrap; }
+[data-student-dashboard] .pc-measurement-status { height: 3em; line-height: 1.5; margin: 12px 0; overflow: auto; }
+[data-student-dashboard] .pc-metrics-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
+[data-student-dashboard] .card.pc-metric-card {
+  height: 180px; padding: 16px 18px; margin: 0; display: grid;
+  grid-template-columns: minmax(0, 1fr); grid-template-rows: 20px 22px 12px 20px 40px; row-gap: 8px; overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+[data-student-dashboard] .pc-metric-card > h4 { grid-row: 1; margin: 0; line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-student-dashboard] .pc-metric-value { grid-row: 2; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-student-dashboard] .pc-metric-card > svg { grid-row: 3; display: block; width: 100%; height: 12px; }
+[data-student-dashboard] .pc-metric-detail { grid-row: 4; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-student-dashboard] .pc-metric-notice,
+[data-student-dashboard] .pc-metric-card > .pc-overload-notice { grid-row: 5; margin: 0; line-height: 18px; overflow: auto; }
+[data-student-dashboard] .pc-metric-card > .pc-network-readings { grid-row: 2 / 5; display: grid; grid-template-rows: repeat(2, minmax(0, 1fr)); }
+[data-student-dashboard] .pc-network-value { flex-wrap: nowrap; margin: 0; }
+[data-student-dashboard] .pc-network-value > span { flex-shrink: 0; }
+[data-student-dashboard] .pc-network-value > strong,
+[data-student-dashboard] .pc-network-value > small { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-student-dashboard] .pc-indicators-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+[data-student-dashboard] .card[data-indicator] {
+  height: 302px; padding: 16px 18px; margin: 0; display: grid;
+  grid-template-columns: minmax(0, 1fr); grid-template-rows: 20px 42px 190px; row-gap: 8px; font-variant-numeric: tabular-nums;
+}
+[data-student-dashboard] [data-indicator] > h4 { margin: 0; line-height: 20px; }
+[data-student-dashboard] .pc-indicator-meta { min-width: 0; overflow: hidden; }
+[data-student-dashboard] .pc-indicator-meta p { margin: 0; }
+[data-student-dashboard] .pc-indicator-meta .pc-network-value { height: 21px; line-height: 21px; font-size: 0.875rem; gap: 4px 8px; }
+[data-student-dashboard] [data-indicator] > svg { display: block; width: 100%; height: 190px; min-width: 0; }
 
 :focus-visible { outline: none; box-shadow: var(--focus); }
 
@@ -304,7 +342,11 @@ main:focus { outline: none; }
 
 /* PC 확대 재배치. 1024px 이상(100% PC 배치)에는 적용되지 않는다. 메뉴는 위쪽으로 옮겨도 세로 탭 그대로라
    위·아래 방향키 탐색과 aria-orientation="vertical" 계약이 바뀌지 않는다. 큰 표·도움정보 칸만 제 안에서 가로로 넘친다. */
+@media (max-width: 1100px) {
+  [data-student-dashboard] .pc-metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 860px) {
+  [data-student-dashboard] .pc-indicators-grid { grid-template-columns: minmax(0, 1fr); }
   .topbar { padding: 8px 16px; }
   .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .sidebar { border-right: 0; border-bottom: 1px solid var(--border); padding: 12px; max-height: 30vh; max-height: 30dvh; }
@@ -315,6 +357,7 @@ main:focus { outline: none; }
   .connect-art { flex: none; }
 }
 @media (max-width: 600px) {
+  [data-student-dashboard] .pc-metrics-grid { grid-template-columns: minmax(0, 1fr); }
   #pc-status .pc-metrics { grid-template-columns: minmax(0, 1fr); }
   #pc-status .pc-auto { margin-left: 0; }
   .identity, .kv { grid-template-columns: minmax(0, 1fr); gap: 2px 0; }

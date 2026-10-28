@@ -65,13 +65,30 @@ function createPcDashboard(api, onChange) {
   const percent = n => finite(n) && n <= 100;
   const time = value => new Date(value).toLocaleString('ko-KR', {timeZone: 'Asia/Seoul', hour12: false});
   const gb = value => `${(value / 1024 ** 3).toFixed(1)} GB`;
-  const reasons = {unsupported: '운영체제 미지원', permission_denied: '읽기 권한 부족', timeout: '조회 시간 초과', cancelled: '조회 취소', query_failed: '조회 실패', invalid_response: '응답 값 확인 불가'};
+  const reasons = {unsupported: '운영체제 미지원', permission_denied: '읽기 권한 부족', timeout: '조회 시간 초과', cancelled: '조회 취소', query_failed: '조회 실패', invalid_response: '응답 값 확인 불가', invalid_sample: '측정 구간 확인 불가', no_active_interface: '활성 네트워크 어댑터 없음'};
   const make = (tag, text, cls) => {
     const node = document.createElement(tag);
     if (text !== undefined) node.textContent = text;
     if (cls) node.className = cls;
     return node;
   };
+  function networkReadings(row, {loading = false, previous = null, showValues = true} = {}) {
+    const readings = make('div', undefined, 'pc-network-readings');
+    for (const [key, label, direction] of [['upload', '↑ 업로드', 'upload'], ['network', '↓ 다운로드', 'download']]) {
+      const value = row?.[key], before = previous?.[key];
+      const group = make('div', undefined, `pc-network-${direction}`);
+      group.dataset.trafficDirection = direction;
+      const line = make('p', undefined, showValues ? 'pc-network-value' : 'pc-network-value pc-network-legend');
+      line.append(make('span', label));
+      if (showValues) line.append(make('strong', finite(value) ? `${value.toFixed(2)} Mbps` : loading ? '조회 중' : '확인 불가'));
+      const delta = make('small', finite(value) && finite(before)
+        ? `직전 대비 ${value > before ? '+' : ''}${(value - before).toFixed(2)} Mbps` : '', 'muted');
+      delta.title = delta.textContent;
+      delta.hidden = !finite(value) || !finite(before);
+      line.append(delta); group.append(line); readings.append(group);
+    }
+    return readings;
+  }
   function normalize(data) {
     const measured = Date.parse(data?.measuredAt);
     if (data?.schema !== 'aleph.on.pc-status.v1' || data.source !== 'local-pc'
@@ -92,15 +109,16 @@ function createPcDashboard(api, onChange) {
           detail = `${gb(m.totalBytes - m.freeBytes)} 사용 / 전체 ${gb(m.totalBytes)}`;
         }
       }
-      // 제공 PC API는 구성 개수만 반환한다. 브라우저의 추정 대역폭을 별도 출처로 표시한다.
       let reason = reasons[m?.reason] || '응답 값 확인 불가';
       if (key === 'network') {
-        reason = '이 브라우저에서 연결 속도 추정값을 제공하지 않습니다.';
-        try {
-          const speed = globalThis.navigator?.connection?.downlink;
-          if (globalThis.navigator?.onLine === false) reason = '브라우저가 오프라인 상태를 보고했습니다. 연결 속도 확인 불가.';
-          else if (finite(speed) && speed > 0) {value = speed; text = `${value.toFixed(2)} Mbps · 다운로드 추정`;}
-        } catch { /* 지원하지 않거나 읽기를 차단하면 확인 불가로 남긴다. */ }
+        const traffic = m?.traffic;
+        const sampled = traffic?.state === 'ok' && traffic.source === 'adapter-counters'
+          && finite(traffic.sampleMs) && traffic.sampleMs >= 250 && traffic.sampleMs <= 10000;
+        const upload = sampled && finite(traffic.uploadMbps) ? traffic.uploadMbps : null;
+        value = sampled && finite(traffic.downloadMbps) ? traffic.downloadMbps : null;
+        reason = reasons[traffic?.reason] || '송수신 속도 확인 불가';
+        metrics[key] = {value, upload, reason};
+        continue;
       }
       metrics[key] = {value, text, detail, reason};
     }
@@ -129,7 +147,8 @@ function createPcDashboard(api, onChange) {
       trackOverload(current);
       phase = 'ok';
       lastError = '';
-      history.push({at: current.measuredAt, cpu: current.metrics.cpu.value, memory: current.metrics.memory.value, network: current.metrics.network.value});
+      history.push({at: current.measuredAt, cpu: current.metrics.cpu.value, memory: current.metrics.memory.value,
+        network: current.metrics.network.value, upload: current.metrics.network.upload});
       clearTimeout(expiryTimer);
       expiryTimer = setTimeout(notify, Math.max(1, 60001 - (Date.now() - Date.parse(current.measuredAt))));
     } catch (error) {
@@ -137,7 +156,7 @@ function createPcDashboard(api, onChange) {
       for (const key of Object.keys(overloadCounts)) overloadCounts[key] = 0;
       overloadMeasuredAt = null;
       const at = new Date().toISOString();
-      history.push({at, cpu: null, memory: null, network: null});
+      history.push({at, cpu: null, memory: null, network: null, upload: null});
       lastError = error?.message === 'TIMEOUT' ? '시간 초과: 서버가 실행 중인지 확인하고 다시 조회하세요.' : '응답이나 연결을 확인하지 못했습니다. 서버 상태를 확인하고 다시 조회하세요.';
     }
     if (history.length > historyLimit) history.shift();
@@ -154,13 +173,15 @@ function createPcDashboard(api, onChange) {
       svg.append(node); return node;
     };
     const rows = history.slice(-12), network = key === 'network';
+    const series = network ? [{key: 'upload', label: '업로드', color: 'var(--allow)'}, {key: 'network', label: '다운로드', color: 'var(--network-download)'}]
+      : [{key, label: titles[key], color: 'var(--accent)'}];
     // 사용률은 0~100% 고정, 속도는 관측 범위에 맞는 Mbps 눈금을 쓴다.
-    const peak = Math.max(0, ...rows.map(row => finite(row[key]) ? row[key] : 0));
+    const peak = Math.max(0, ...rows.flatMap(row => series.map(item => finite(row[item.key]) ? row[item.key] : 0)));
     const target = Math.max(1, peak * 1.1), magnitude = 10 ** Math.floor(Math.log10(target));
     const maximum = network ? Math.ceil(target / magnitude) * magnitude : 100;
     const valueLabel = value => network ? `${value.toFixed(2)} Mbps` : `${value.toFixed(1)}%`;
     svg.setAttribute('viewBox', '0 0 360 190'); svg.setAttribute('width', '100%'); svg.setAttribute('height', '190');
-    svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', `${titles[key]} 변화. ${network ? '브라우저 다운로드 추정 속도, 단위 Mbps.' : '실측 사용률, 단위 %.'} 정확한 값은 측정값 기록에서 확인하세요.`);
+    svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', `${titles[key]} 변화. ${network ? '업로드는 초록색, 다운로드는 파란색. 활성 어댑터 송수신 속도, 단위 Mbps.' : '실측 사용률, 단위 %.'} 각 점은 조회 시각과 측정값을 나타냅니다.`);
     add('title', {}, `${titles[key]} 변화`);
     add('desc', {}, `세로축 0~${maximum}${network ? ' Mbps (관측값에 따라 자동 조정, 회선 최대 속도가 아님)' : '%'}, 가로축 실제 조회 시각. 확인하지 못한 구간은 선을 잇지 않습니다.`);
     for (const value of [0, maximum / 2, maximum]) {
@@ -168,79 +189,64 @@ function createPcDashboard(api, onChange) {
       add('line', {x1: 62, y1: y, x2: 348, y2: y, stroke: 'var(--border)'});
       add('text', {x: 0, y: y + 4, fill: 'var(--muted)', 'font-size': 11}, `${value}${network ? ' Mbps' : '%'}`);
     }
-    const start = Date.parse(rows[0].at), duration = Date.parse(rows.at(-1).at) - start;
-    let points = [];
-    const flush = () => {if (points.length > 1) add('polyline', {points: points.join(' '), fill: 'none', stroke: 'var(--accent)', 'stroke-width': 2.5}); points = [];};
-    for (const row of rows) {
-      if (!finite(row[key])) {flush(); continue;}
-      const x = duration > 0 ? 62 + (Date.parse(row.at) - start) / duration * 286 : 205;
-      const y = 148 - row[key] / maximum * 132;
-      points.push(`${x},${y}`);
-      const point = add('circle', {cx: x, cy: y, r: 3.5, fill: 'var(--accent)'});
-      const title = document.createElementNS(ns, 'title'); title.textContent = `${time(row.at)} · ${valueLabel(row[key])}`; point.append(title);
+    const start = rows.length ? Date.parse(rows[0].at) : 0;
+    const duration = rows.length ? Date.parse(rows.at(-1).at) - start : 0;
+    for (const item of series) {
+      let points = [];
+      const flush = () => {if (points.length > 1) add('polyline', {points: points.join(' '), fill: 'none', stroke: item.color, 'stroke-width': 2.5}); points = [];};
+      for (const row of rows) {
+        if (!finite(row[item.key])) {flush(); continue;}
+        const x = duration > 0 ? 62 + (Date.parse(row.at) - start) / duration * 286 : 205;
+        const y = 148 - row[item.key] / maximum * 132;
+        points.push(`${x},${y}`);
+        const point = add('circle', {cx: x, cy: y, r: 3.5, fill: item.color});
+        const title = document.createElementNS(ns, 'title'); title.textContent = `${time(row.at)} · ${item.label} ${valueLabel(row[item.key])}`; point.append(title);
+      }
+      flush();
     }
-    flush();
     const shortTime = at => new Date(at).toLocaleTimeString('ko-KR', {timeZone: 'Asia/Seoul', hour12: false});
-    add('text', {x: 62, y: 178, fill: 'var(--muted)', 'font-size': 11}, shortTime(rows[0].at));
-    add('text', {x: 348, y: 178, fill: 'var(--muted)', 'font-size': 11, 'text-anchor': 'end'}, shortTime(rows.at(-1).at));
+    add('text', {x: 62, y: 178, fill: 'var(--muted)', 'font-size': 11}, rows.length ? shortTime(rows[0].at) : '—');
+    add('text', {x: 348, y: 178, fill: 'var(--muted)', 'font-size': 11, 'text-anchor': 'end'}, rows.length ? shortTime(rows.at(-1).at) : '—');
     return svg;
   }
   function indicatorCards() {
-    const cards = make('div', undefined, 'row');
+    const cards = make('div', undefined, 'pc-indicators-grid');
     for (const key of ['cpu', 'memory', 'network']) {
       const card = make('article', undefined, 'card'); card.dataset.indicator = key;
-      card.append(make('h4', key === 'network' ? '네트워크 속도 (추정)' : titles[key]));
+      card.append(make('h4', titles[key]));
       const latest = history.at(-1)?.[key], previous = history.at(-2)?.[key];
       const network = key === 'network', digits = network ? 2 : 1;
-      card.append(make('p', !history.length ? '첫 조회를 기다리고 있습니다.' : finite(latest) ? `마지막 기록: ${latest.toFixed(digits)}${network ? ' Mbps' : '%'}` : '마지막 기록: 확인 불가', 'item-title'));
-      if (finite(latest) && finite(previous)) {
+      const meta = make('div', undefined, 'pc-indicator-meta');
+      if (network) meta.append(networkReadings(history.at(-1), {previous: history.at(-2), showValues: false}));
+      if (!network && finite(latest) && finite(previous)) {
         const change = latest - previous;
-        card.append(make('p', `직전 조회 대비 ${change > 0 ? '+' : ''}${change.toFixed(digits)}${network ? ' Mbps' : '%p'}`, 'muted'));
-      } else card.append(make('p', network ? '다운로드 속도 · 브라우저 추정' : '사용률 · 전체 100% 기준', 'muted'));
-      if (history.slice(-12).some(row => finite(row[key]))) card.append(chart(key));
-      else card.append(make('p', network ? '확인 가능한 속도 기록이 없습니다.' : '확인 가능한 측정 기록이 없습니다.', 'muted'));
-      if (history.length === 1 && finite(latest)) card.append(make('p', '한 번 더 조회하면 변화가 선으로 이어집니다.', 'muted'));
+        meta.append(make('p', `직전 조회 대비 ${change > 0 ? '+' : ''}${change.toFixed(digits)}%p`, 'muted'));
+      } else if (!network) meta.append(make('p', '사용률 · 전체 100% 기준', 'muted'));
+      card.append(meta, chart(key));
       cards.append(card);
     }
     return cards;
   }
-  function indicatorsSection(stale, loading) {
+  function indicatorsSection() {
     const indicators = make('section', undefined, 'card');
     indicators.id = 'pc-indicators';
     indicators.setAttribute('aria-label', 'PC 상태 지표');
     indicators.append(make('h4', '상태 지표'));
     indicators.append(make('p', '상태 조회마다 기록한 최근 12회의 변화입니다. 확인하지 못한 구간은 선을 잇지 않습니다. 새로고침하면 기록이 초기화됩니다.', 'muted'));
-    const indicatorStatus = make('p', phase === 'error' || stale ? '그래프는 과거 기록입니다. 현재 상태는 다시 조회해 주세요.' : '첫 측정값을 불러오고 있습니다.', 'muted');
-    indicatorStatus.hidden = !(phase === 'error' || stale || (loading && !history.length));
-    indicators.append(indicatorStatus);
     indicators.append(indicatorCards());
-    if (history.length) {
-      const measurements = make('details'); measurements.append(make('summary', '측정값 기록 보기'));
-      const table = make('table'); table.append(make('caption', '최근 측정 기록 (한국 시간) · 과거 관측이며 현재 값이 아닙니다.'));
-      const head = make('thead'), header = make('tr');
-      for (const label of ['조회 시각', 'CPU 사용률', '메모리 사용률', '네트워크 추정 속도']) {const th = make('th', label); th.scope = 'col'; header.append(th);}
-      head.append(header); table.append(head);
-      const body = make('tbody');
-      for (const row of history.slice(-12)) {
-        const tr = make('tr'); tr.append(make('td', time(row.at)));
-        for (const key of ['cpu', 'memory']) tr.append(make('td', row[key] === null ? '확인 불가' : `${row[key].toFixed(1)}%`));
-        tr.append(make('td', finite(row.network) ? `${row.network.toFixed(2)} Mbps` : '확인 불가'));
-        body.append(tr);
-      }
-      table.append(body); measurements.append(table); indicators.append(measurements);
-    }
     return indicators;
   }
   // SVG 표시 속성을 써서 제공 화면의 CSP와 색 테마를 그대로 따른다.
   function bar(label, value) {
     const ns = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(ns, 'svg');
+    const available = finite(value);
     for (const [key, attr] of Object.entries({viewBox: '0 0 320 12', width: '100%', height: 12,
-      preserveAspectRatio: 'none', role: 'meter', 'aria-label': label,
-      'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': value, 'aria-valuetext': `${value.toFixed(1)}% 사용`})) {
+      preserveAspectRatio: 'none', role: available ? 'meter' : 'img', 'aria-label': available ? label : `${label} · 측정값 없음`,
+      ...(available ? {'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': value, 'aria-valuetext': `${value.toFixed(1)}% 사용`} : {})})) {
       svg.setAttribute(key, String(attr));
     }
-    for (const [width, fill] of [[320, 'var(--accent-soft)'], [3.2 * value, 'var(--accent)']]) {
+    for (const [width, fill] of [[320, 'var(--accent-soft)'], [available ? 3.2 * value : 0, 'var(--accent)']]) {
       const rect = document.createElementNS(ns, 'rect');
       for (const [key, attr] of Object.entries({width, height: 12, rx: 6, fill})) rect.setAttribute(key, String(attr));
       if (fill === 'var(--accent)') rect.setAttribute('class', 'pc-usage-fill');
@@ -268,10 +274,10 @@ function createPcDashboard(api, onChange) {
     root.setAttribute('aria-label', '케셰브 관제 대시보드 · 학생 개선');
     mountedRoot = root;
     root.append(make('h3', '케셰브 관제 대시보드'));
-    root.append(make('p', '서버를 다른 기기에서 실행하면 사용자 PC의 실측값이 아닙니다. 네트워크 추정값은 실제 송수신 사용량·최대 회선 속도와 다를 수 있습니다.', 'muted'));
+    root.append(make('p', '서버를 다른 기기에서 실행하면 사용자 PC의 실측값이 아닙니다. 네트워크는 활성 어댑터의 송수신 속도이며 회선 최대 속도가 아닙니다.', 'muted'));
     const loading = phase === 'idle' || phase === 'loading';
     const controls = make('div', undefined, 'row');
-    const refresh = make('button', loading ? current ? '갱신 중…' : '실측 조회 중…' : '상태 조회', 'btn'); refresh.type = 'button';
+    const refresh = make('button', loading ? current ? '갱신 중…' : '실측 조회 중…' : '상태 조회', 'btn pc-refresh'); refresh.type = 'button';
     refresh.disabled = loading; refresh.addEventListener('click', read); controls.append(refresh);
     const autoLabel = make('label', undefined, 'btn');
     autoLabel.title = '화면이 보이는 동안 조회가 끝난 뒤 10초마다 다시 측정합니다.';
@@ -289,27 +295,27 @@ function createPcDashboard(api, onChange) {
     const status = make('p', current
       ? `${phase === 'error' ? `갱신 실패 · 마지막 측정값 유지. ${lastError} · ` : ''}마지막 측정: ${time(current.measuredAt)} (한국 시간) · ${stale ? '오래된 기록 · ' : ''}${autoStatus}`
       : phase === 'error' ? `조회 실패 · 현재 값 확인 불가. ${lastError} ${autoRefresh ? autoStatus : ''}`
-      : '첫 측정값을 불러오고 있습니다.');
+      : '첫 측정값을 불러오고 있습니다.', 'pc-measurement-status');
+    status.title = status.textContent;
     status.setAttribute('role', 'status'); root.append(status);
-    const cards = make('div', undefined, 'grid-2');
-    // 제공 2열 배치를 중첩해 PC에서는 네 카드를 한 행에 표시한다.
-    for (const pair of [['cpu', 'memory'], ['disk', 'network']]) {
-      const group = make('div', undefined, 'grid-2');
-      for (const key of pair) {
-        const card = make('article', undefined, 'card'); card.dataset.metric = key;
+    const cards = make('div', undefined, 'pc-metrics-grid');
+    for (const key of ['cpu', 'memory', 'disk', 'network']) {
+        const card = make('article', undefined, 'card pc-metric-card'); card.dataset.metric = key;
         const metric = current?.metrics[key], usable = Boolean(current);
         card.append(make('h4', titles[key]));
-        if (!usable || metric.value === null || key === 'network') {
-          card.append(make('p', usable ? metric.text : loading ? '조회 중' : stale ? '오래된 값 · 재조회 필요' : '확인 불가'));
+        if (key === 'network') {
+          card.append(networkReadings(usable ? {network: metric.value, upload: metric.upload} : null, {loading: !usable && loading}));
+          const note = make('p', usable && (metric.value === null || metric.upload === null) ? metric.reason : '활성 어댑터 송수신량 · 약 1초 평균', 'muted pc-metric-notice');
+          note.title = note.textContent; card.append(note);
+          cards.append(card); continue;
         }
-        if (usable && metric.value !== null && key !== 'network') {
-          const used = key === 'disk' ? 100 - metric.value : metric.value;
-          card.append(make('p', `사용 ${used.toFixed(1)}% / 전체 100%`, 'muted'), bar(`${key === 'disk' ? '디스크' : titles[key]} 사용률`, used));
-          if (metric.detail) card.append(make('p', metric.detail, 'muted'));
-        }
-        if (usable && metric.value === null) card.append(make('p', metric.reason, 'muted'));
+        const used = usable && metric.value !== null ? key === 'disk' ? 100 - metric.value : metric.value : null;
+        const readout = make('p', finite(used) ? `사용 ${used.toFixed(1)}% / 전체 100%` : usable ? metric.text : loading ? '조회 중' : '확인 불가', 'muted pc-metric-value');
+        const detail = make('p', usable ? metric.value === null ? metric.reason : metric.detail || '' : '', 'muted pc-metric-detail');
+        detail.title = detail.textContent;
+        card.append(readout, bar(`${key === 'disk' ? '디스크' : titles[key]} 사용률`, used), detail);
         if (key === 'disk') {
-          const warning = make('p', '디스크 여유 10% 미만: 파일을 확인하고 백업하세요.', 'muted');
+          const warning = make('p', '디스크 여유 10% 미만: 파일을 확인하고 백업하세요.', 'muted pc-metric-notice');
           warning.hidden = !usable || metric.value === null || metric.value >= 10 || stale || phase === 'error';
           card.append(warning);
         }
@@ -321,20 +327,17 @@ function createPcDashboard(api, onChange) {
           card.dataset.overload = state;
           const notice = make('p', undefined, 'pc-overload-notice');
           notice.setAttribute('aria-live', 'polite'); notice.setAttribute('aria-atomic', 'true');
-          notice.hidden = outdated ? !(usable && metric.value !== null && metric.value >= overloadThreshold) : !count;
-          const icon = make('span', outdated ? 'ⓘ' : '⚠'); icon.setAttribute('aria-hidden', 'true');
-          const message = outdated ? '과거 측정 · 연속 여부를 확인하려면 다시 조회하세요.'
-            : count >= overloadReadings ? `${titles[key]} 사용량이 계속 높습니다. (${count}회 연속 ${overloadThreshold}% 이상)`
-            : `높은 사용량 감지 · 연속 ${count}/${overloadReadings}회 (${overloadThreshold}% 이상)`;
+          notice.hidden = outdated || !count;
+          const icon = make('span', '⚠'); icon.setAttribute('aria-hidden', 'true');
+          const message = outdated ? ''
+            : count >= overloadReadings ? `${titles[key]} 사용량이 계속 높습니다.`
+            : `높은 사용량 감지 (${overloadThreshold}% 이상)`;
           notice.append(icon, make('span', message)); card.append(notice);
         }
-        if (key === 'network') card.append(make('p', '출처: 브라우저 연결 정보 · 다운로드 대역폭 추정값. 업로드 속도는 제공되지 않습니다.', 'muted'));
-        group.append(card);
-      }
-      cards.append(group);
+        cards.append(card);
     }
     root.append(cards);
-    root.append(indicatorsSection(stale, loading));
+    root.append(indicatorsSection());
     return root;
   };
 }
