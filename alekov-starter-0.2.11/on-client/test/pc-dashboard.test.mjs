@@ -73,11 +73,12 @@ function setup() {
     status: () => find(node => node.getAttribute?.('role') === 'status'),
     indicators: () => find(node => node.id === 'pc-indicators'),
     advance(ms) {now += ms;},
-    finish(index, cpu = 20, ok = true, memory = 50, traffic = {state: 'ok', source: 'adapter-counters', uploadMbps: 1, downloadMbps: 10, sampleMs: 1000}) {
+    renderMode: mode => render(mode),
+    finish(index, cpu = 20, ok = true, memory = 50, traffic = {state: 'ok', source: 'adapter-counters', uploadMbps: 1, downloadMbps: 10, sampleMs: 1000}, extra = {}) {
       requests[index](ok ? {ok: true, data: {schema: 'aleph.on.pc-status.v1', source: 'local-pc', measuredAt: new Date(now).toISOString(),
         metrics: {cpu: cpu === null ? {state: 'unavailable', reason: 'timeout'} : {state: 'ok', usagePercent: cpu},
           memory: memory === null ? {state: 'unavailable', reason: 'timeout'} : {state: 'ok', usedBytes: memory, totalBytes: 100},
-          disk: {state: 'ok', freeBytes: 30, totalBytes: 100}, network: {state: 'ok', interfaceCount: 1, ipv4Count: 1, traffic}}}} : {ok: false});
+          disk: {state: 'ok', freeBytes: 30, totalBytes: 100}, network: {state: 'ok', interfaceCount: 1, ipv4Count: 1, traffic}, ...extra}}} : {ok: false});
     }};
 }
 
@@ -98,6 +99,28 @@ test('refresh retains values and graph nodes, then changes the existing meter in
   assert.equal(all(graph).filter(node => node.localName === 'circle').length, 2);
   const retry = ui.button().fire('click'); ui.finish(2, 40); await retry;
   assert.equal(ui.indicators().hidden, false);
+});
+
+test('PC configuration, firewall and Windows counts distinguish partial and unavailable results', async () => {
+  const ui = setup(); await flush();
+  const firewall = {state: 'ok', profiles: [{name: 'Public', enabled: true}, {name: 'Domain', enabled: true}, {name: 'Private', enabled: false}]};
+  ui.finish(0, 20, true, 50, undefined, {firewall, events: {state: 'ok', warningCount: 30, errorCount: 10, sampleLimit: 5000, truncated: true}}); await flush();
+  assert.equal(ui.card('configuration'), undefined);
+  assert.match(ui.card('network').textContent, /업로드.*다운로드.*인터페이스 1개.*IPv4 구성 1개/);
+  assert.match(ui.card('firewall').textContent, /Domain 켜짐.*Private 꺼짐.*Public 켜짐/);
+  const firewallValues = all(ui.card('firewall')).find(node => node.className === 'pc-extra-value pc-firewall-values');
+  assert.deepEqual(firewallValues.childNodes.map(node => node.textContent), ['Domain 켜짐', 'Private 꺼짐', 'Public 켜짐']);
+  assert.match(ui.card('events').textContent, /경고 30건.*오류 10건.*일부 집계/);
+  assert.match(ui.card('events').textContent, /침해나 공격 탐지 결과가 아닙니다/);
+  assert.match(ui.status().textContent, /PC 실측/);
+  const pending = ui.button().fire('click'); ui.advance(1000);
+  ui.finish(1, 20, true, 50, undefined, {firewall: {state: 'unavailable', reason: 'permission_denied'}, events: {state: 'unavailable', reason: 'permission_denied'}}); await pending;
+  for (const key of ['firewall', 'events']) assert.match(ui.card(key).textContent, /확인 불가.*읽기 권한 부족/);
+  const partial = ui.button().fire('click'); ui.advance(1000);
+  ui.finish(2, 20, true, 50, undefined, {network: {state: 'unavailable', reason: 'permission_denied', traffic: {state: 'ok', source: 'adapter-counters', uploadMbps: 1, downloadMbps: 2, sampleMs: 1000}}}); await partial;
+  assert.match(ui.card('network').textContent, /업로드1.00 Mbps.*다운로드2.00 Mbps.*구성 확인 불가 · 읽기 권한 부족/);
+  assert.match(ui.root.textContent, /내 PC 상태 대시보드/);
+  assert.doesNotMatch(ui.root.textContent, /SDP 미연결|SDP 예시 모드|SDP 연결 확인 필요/);
 });
 
 test('failed refresh keeps the last measured value with an explicit failure; partial data replaces it', async () => {
@@ -131,22 +154,56 @@ test('10-second refresh preserves checkbox and graphs while values update', asyn
   assert.match(ui.card('cpu').textContent, /사용 35.0%/);
 });
 
-test('indicators appear directly without tabs or query logs and retain twelve measurements', async () => {
+test('automatic refresh uses start-to-start intervals and skips missed intervals without overlap', async () => {
+  const ui = setup(); await flush(); ui.finish(0); await flush();
+  const checkbox = ui.checkbox(); checkbox.checked = true; checkbox.fire('change');
+  ui.advance(2500); ui.finish(1, 30); await flush();
+  let timer = [...ui.timers].find(([, value]) => value.delay === 7500);
+  assert.ok(timer, 'remaining interval excludes request duration');
+  ui.timers.delete(timer[0]); ui.advance(7500); timer[1].fn();
+  assert.equal(ui.requests.length, 3);
+  ui.advance(25000); assert.equal(ui.requests.length, 3, 'slow request does not overlap');
+  ui.finish(2, 35); await flush();
+  timer = [...ui.timers].find(([, value]) => value.delay === 5000);
+  assert.ok(timer, 'missed intervals are skipped until the next scheduled start');
+  checkbox.checked = false; checkbox.fire('change');
+  assert.equal([...ui.timers.values()].some(value => value.delay === 5000), false);
+});
+
+test('indicator tab retains twelve measurements', async () => {
   const ui = setup(); await flush(); ui.finish(0); await flush();
   for (let index = 1; index < 20; index++) {
     const pending = ui.button().fire('click'); ui.advance(1000); ui.finish(index); await pending;
   }
   const section = ui.indicators();
   assert.equal(section.hidden, false);
-  assert.equal(section.childNodes[0].textContent, '상태 지표');
-  assert.equal(section.getAttribute('aria-label'), 'PC 상태 지표');
-  assert.equal(all(ui.root).some(node => ['tab', 'tablist', 'tabpanel'].includes(node.getAttribute?.('role'))), false);
-  assert.doesNotMatch(ui.root.textContent, /조회 기록|상세 관측/);
+  assert.equal(section.childNodes[0].textContent, '상세보기');
+  assert.equal(section.getAttribute('aria-label'), 'PC 상세보기');
+  assert.equal(all(section).filter(node => node.getAttribute?.('role') === 'tab').length, 2);
   assert.equal(all(section).filter(node => node.dataset?.indicator !== undefined).length, 3);
-  assert.equal(all(section).some(node => ['details', 'table'].includes(node.localName)), false);
   assert.doesNotMatch(section.textContent, /마지막 기록:/);
   assert.equal(all(section).some(node => node.localName === 'strong'), false, 'current upload/download readings remain in the top cards only');
   assert.equal(all(ui.graph('cpu')).filter(node => node.localName === 'circle').length, 12);
+});
+
+test('records retain fifty snapshots, paginate five at a time and preserve failures and earlier values', async () => {
+  const ui = setup(); await flush(); ui.finish(0, 10); await flush();
+  for (let i = 1; i < 55; i++) {const pending = ui.button().fire('click'); ui.advance(1000); ui.finish(i, i, i !== 53); await pending;}
+  const find = id => all(ui.indicators()).find(node => node.id === id);
+  find('pc-tab-records').fire('click');
+  assert.equal(find('pc-panel-records').hidden, false); assert.equal(find('pc-panel-indicators').hidden, true);
+  const rows = () => all(find('pc-panel-records')).filter(node => node.dataset?.recordId !== undefined);
+  assert.equal(rows().length, 5); assert.equal(rows()[0].dataset.recordId, '55');
+  assert.match(find('pc-history-page').textContent, /총 50개 · 1\/10페이지/);
+  assert.match(rows()[0].textContent, /CPU: 54.0%/);
+  assert.match(rows()[0].textContent, /메모리:.*디스크 사용:.*네트워크:/);
+  assert.doesNotMatch(rows()[0].textContent, /네트워크 구성:|방화벽:|Windows 기록:/);
+  assert.match(rows()[1].textContent, /조회 실패/); assert.doesNotMatch(rows()[1].textContent, /CPU:/);
+  for (let page = 2; page <= 10; page++) find('pc-history-next').fire('click');
+  assert.match(find('pc-history-page').textContent, /10\/10페이지/);
+  assert.equal(rows().at(-1).dataset.recordId, '6'); assert.match(rows().at(-1).textContent, /CPU: 5.0%/);
+  assert.equal(find('pc-history-next').disabled, true); assert.equal(ui.requests.length, 55);
+  find('pc-tab-indicators').fire('click'); assert.equal(find('pc-panel-indicators').hidden, false);
 });
 
 test('CPU and memory distinguish initial spikes from three consecutive high readings and recover independently', async () => {
