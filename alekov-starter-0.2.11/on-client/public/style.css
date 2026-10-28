@@ -74,6 +74,13 @@ h4 { font-size: 0.9rem; margin: 0 0 4px; color: var(--muted); }
 #pc-status .pc-value { font-size: 1.15rem; font-weight: 650; margin: 8px 0; overflow-wrap: anywhere; }
 #pc-status .pc-metric[data-state="unavailable"] .pc-value { color: var(--unknown); }
 [data-student-dashboard] .pc-usage-fill { transition: width 240ms ease-out; }
+[data-student-dashboard] [data-overload="elevated"] { border-color: var(--challenge); }
+[data-student-dashboard] [data-overload="sustained"] { border-color: var(--deny); background: var(--deny-soft); }
+[data-student-dashboard] .pc-overload-notice { display: flex; align-items: baseline; gap: 6px; margin-bottom: 0; font-size: 0.875rem; color: var(--muted); }
+[data-student-dashboard] [data-overload="elevated"] .pc-overload-notice { color: var(--challenge); }
+[data-student-dashboard] [data-overload="sustained"] .pc-overload-notice { color: var(--deny); font-weight: 600; }
+[data-student-dashboard] [data-overload="elevated"] .pc-usage-fill { fill: var(--challenge); }
+[data-student-dashboard] [data-overload="sustained"] .pc-usage-fill { fill: var(--deny); }
 
 :focus-visible { outline: none; box-shadow: var(--focus); }
 

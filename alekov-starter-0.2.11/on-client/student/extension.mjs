@@ -1,11 +1,14 @@
 // 이 파일은 학생이 같은 프로젝트에서 이어서 구현합니다.
 // 제공 UI를 받은 것만으로 단계 완료를 인정하지 않습니다.
-// 학생 개선: 제공 PC 조회 API를 요약·시각화한다. 수집·기록은 이 탭의 메모리에만 둔다.
+// 학생 개선: 제공 PC 조회 API를 요약·시각화한다. 최근 측정값은 이 화면의 메모리에만 둔다.
 function createPcDashboard(api, onChange) {
-  const limit = 60;
-  const history = [], records = [];
+  const historyLimit = 12;
+  const history = [];
+  const overloadThreshold = 85, overloadReadings = 3, overloadMaxGap = 60000;
+  const overloadCounts = {cpu: 0, memory: 0};
+  let overloadMeasuredAt = null;
   let phase = 'idle', current = null, expiryTimer, mountedRoot, renderView;
-  let activeDetailsTab = 'indicators';
+  let lastError = '';
   let autoRefresh = false, autoTimer = null, pageHidden = false;
   function stopAutoRefresh() {
     clearTimeout(autoTimer); autoTimer = null;
@@ -16,7 +19,7 @@ function createPcDashboard(api, onChange) {
     autoTimer = setTimeout(() => {
       autoTimer = null;
       if (autoRefresh && !pageHidden && !document.hidden) void read();
-    }, 30000);
+    }, 10000);
   }
   // 기존 노드를 유지하고 값·속성만 갱신해 카드와 그래프가 재조회 중 사라지지 않게 한다.
   function updateElement(target, source) {
@@ -35,7 +38,14 @@ function createPcDashboard(api, onChange) {
     const children = [...source.childNodes];
     const key = node => node.nodeType === 1 ? node.id || node.getAttribute('data-metric') || node.getAttribute('data-indicator') : null;
     children.forEach((child, index) => {
-      const existing = target.childNodes[index];
+      let existing = target.childNodes[index];
+      const childKey = key(child);
+      if (childKey && existing && key(existing) !== childKey) {
+        const retained = [...target.childNodes].slice(index + 1).find(node => node.nodeName === child.nodeName && key(node) === childKey);
+        target.insertBefore(retained || child, existing);
+        existing = target.childNodes[index];
+      }
+      if (existing === child) return;
       if (!existing) target.append(child);
       else if (existing.nodeType !== child.nodeType || existing.nodeName !== child.nodeName || key(existing) !== key(child)) existing.replaceWith(child);
       else updateElement(existing, child);
@@ -67,7 +77,7 @@ function createPcDashboard(api, onChange) {
     if (data?.schema !== 'aleph.on.pc-status.v1' || data.source !== 'local-pc'
       || !/(?:Z|[+-]\d{2}:\d{2})$/.test(data.measuredAt) || !Number.isFinite(measured)
       || Date.now() - measured > 60000 || measured - Date.now() > 5000) throw Error('INVALID_RESPONSE');
-    const metrics = {}, notes = [];
+    const metrics = {};
     for (const key of Object.keys(titles)) {
       const m = data.metrics?.[key];
       let value = null, text = '확인 불가', detail = null;
@@ -93,12 +103,20 @@ function createPcDashboard(api, onChange) {
         } catch { /* 지원하지 않거나 읽기를 차단하면 확인 불가로 남긴다. */ }
       }
       metrics[key] = {value, text, detail, reason};
-      if (value === null) notes.push(`${titles[key]}: ${metrics[key].reason}`);
     }
-    if (metrics.cpu.value >= 85) notes.push('CPU 사용률 85% 이상: 실행 중인 앱을 확인하세요.');
-    if (metrics.memory.value >= 85) notes.push('메모리 사용률 85% 이상: 작업을 저장하고 사용 중인 앱을 확인하세요.');
-    if (metrics.disk.value !== null && metrics.disk.value < 10) notes.push('디스크 여유 10% 미만: 파일을 확인하고 백업하세요. 자동 삭제하지 않습니다.');
-    return {measuredAt: data.measuredAt, metrics, notes};
+    return {measuredAt: data.measuredAt, metrics};
+  }
+  // 서로 다른 실측 시각의 인접한 조회만 센다. 실패·누락·긴 공백은 연속으로 보지 않는다.
+  function trackOverload(sample) {
+    const measuredAt = Date.parse(sample.measuredAt);
+    const consecutive = overloadMeasuredAt !== null && measuredAt > overloadMeasuredAt
+      && measuredAt - overloadMeasuredAt <= overloadMaxGap;
+    for (const key of Object.keys(overloadCounts)) {
+      const value = sample.metrics[key].value;
+      const count = finite(value) && value >= overloadThreshold ? (consecutive ? overloadCounts[key] : 0) + 1 : 0;
+      overloadCounts[key] = count;
+    }
+    overloadMeasuredAt = measuredAt;
   }
   async function read() {
     if (pageHidden || phase === 'loading') return;
@@ -108,20 +126,21 @@ function createPcDashboard(api, onChange) {
       const result = await api?.get('/api/pc/status');
       if (result?.ok !== true) throw Error(result?.error?.code === 'TIMEOUT' ? 'TIMEOUT' : 'REQUEST_FAILED');
       current = normalize(result.data);
+      trackOverload(current);
       phase = 'ok';
+      lastError = '';
       history.push({at: current.measuredAt, cpu: current.metrics.cpu.value, memory: current.metrics.memory.value, network: current.metrics.network.value});
-      const available = Object.values(current.metrics).filter(m => m.value !== null).length;
-      records.unshift({at: current.measuredAt, text: `${available === 4 ? '조회 성공' : '부분 결과'} · ${available}/4항목 확인`, notes: current.notes});
       clearTimeout(expiryTimer);
       expiryTimer = setTimeout(notify, Math.max(1, 60001 - (Date.now() - Date.parse(current.measuredAt))));
     } catch (error) {
       phase = 'error';
+      for (const key of Object.keys(overloadCounts)) overloadCounts[key] = 0;
+      overloadMeasuredAt = null;
       const at = new Date().toISOString();
       history.push({at, cpu: null, memory: null, network: null});
-      records.unshift({at, text: '조회 실패 · 현재 값 확인 불가', notes: [error?.message === 'TIMEOUT' ? '시간 초과: 서버가 실행 중인지 확인하고 직접 다시 조회하세요.' : '응답이나 연결을 확인하지 못했습니다. 서버 상태를 확인하고 직접 다시 조회하세요.']});
+      lastError = error?.message === 'TIMEOUT' ? '시간 초과: 서버가 실행 중인지 확인하고 다시 조회하세요.' : '응답이나 연결을 확인하지 못했습니다. 서버 상태를 확인하고 다시 조회하세요.';
     }
-    if (history.length > limit) history.shift();
-    if (records.length > limit) records.pop();
+    if (history.length > historyLimit) history.shift();
     notify();
     scheduleAutoRefresh();
   }
@@ -185,59 +204,11 @@ function createPcDashboard(api, onChange) {
     }
     return cards;
   }
-  function details(stale, loading) {
-    const box = make('section', undefined, 'card');
-    box.setAttribute('aria-label', 'PC 상세 관측');
-    box.append(make('h4', '상세 관측'));
-    const tabs = make('div', undefined, 'row');
-    tabs.setAttribute('role', 'tablist');
-    tabs.setAttribute('aria-label', 'PC 상세 정보 선택');
-    tabs.setAttribute('aria-orientation', 'horizontal');
-    box.append(tabs);
-    const entries = [];
-    function select(key, focus = false) {
-      activeDetailsTab = key;
-      for (const {key: entryKey, button, panel} of entries) {
-        const selected = entryKey === key;
-        button.setAttribute('aria-selected', String(selected));
-        button.tabIndex = selected ? 0 : -1;
-        button.className = selected ? 'btn state-loading' : 'btn';
-        panel.hidden = !selected;
-        if (selected && focus) button.focus();
-      }
-    }
-    for (const [key, label] of [['indicators', '상태 지표'], ['observations', '주의할 관측'], ['records', '조회 기록']]) {
-      const button = make('button', label, 'btn'); button.type = 'button';
-      button.id = `pc-details-tab-${key}`;
-      button.dataset.pcDetailsTab = key;
-      button.setAttribute('role', 'tab');
-      button.setAttribute('aria-controls', `pc-details-panel-${key}`);
-      const panel = make('section', undefined, 'vulnerabilities-result');
-      panel.id = `pc-details-panel-${key}`;
-      panel.tabIndex = 0;
-      panel.setAttribute('role', 'tabpanel');
-      panel.setAttribute('aria-labelledby', button.id);
-      button.addEventListener('click', () => select(key));
-      button.addEventListener('keydown', event => {
-        const index = entries.findIndex(entry => entry.key === key);
-        const target = event.key === 'ArrowRight' ? (index + 1) % entries.length
-          : event.key === 'ArrowLeft' ? (index + entries.length - 1) % entries.length
-          : event.key === 'Home' ? 0 : event.key === 'End' ? entries.length - 1 : -1;
-        if (target < 0) return;
-        event.preventDefault(); select(entries[target].key, true);
-      });
-      entries.push({key, button, panel}); tabs.append(button); box.append(panel);
-    }
-    const [indicators, observations, log] = entries.map(entry => entry.panel);
-    if (loading && !current) observations.append(make('p', '상태를 조회하고 있습니다.', 'muted'));
-    else if (phase === 'error') observations.append(make('p', '현재 관측을 확인하지 못했습니다. 조회 기록에서 실패 내용을 확인하고 다시 조회하세요.'));
-    else if (stale) observations.append(make('p', '마지막 조회값이 오래됐습니다. 현재 관측은 다시 조회하고, 과거 내용은 조회 기록에서 확인하세요.'));
-    else if (current?.notes.length) {
-      const list = make('ul');
-      for (const note of current.notes) list.append(make('li', note));
-      observations.append(list);
-    } else observations.append(make('p', '이번 조회에서 사용률·디스크 여유 경고 조건에 해당하는 관측이 없습니다.'));
-    observations.append(make('p', 'Windows 방화벽·Windows 기록은 제공 「내 PC 상태」에서 별도로 확인합니다. 이 대시보드의 네 항목으로 PC 전체 안전을 판단하지 않습니다.', 'muted'));
+  function indicatorsSection(stale, loading) {
+    const indicators = make('section', undefined, 'card');
+    indicators.id = 'pc-indicators';
+    indicators.setAttribute('aria-label', 'PC 상태 지표');
+    indicators.append(make('h4', '상태 지표'));
     indicators.append(make('p', '상태 조회마다 기록한 최근 12회의 변화입니다. 확인하지 못한 구간은 선을 잇지 않습니다. 새로고침하면 기록이 초기화됩니다.', 'muted'));
     const indicatorStatus = make('p', phase === 'error' || stale ? '그래프는 과거 기록입니다. 현재 상태는 다시 조회해 주세요.' : '첫 측정값을 불러오고 있습니다.', 'muted');
     indicatorStatus.hidden = !(phase === 'error' || stale || (loading && !history.length));
@@ -258,16 +229,7 @@ function createPcDashboard(api, onChange) {
       }
       table.append(body); measurements.append(table); indicators.append(measurements);
     }
-    log.append(make('p', '이 화면에서 조회한 기록을 최신순으로 최대 60회 보관합니다. XDR 경보·침해 판정이 아닙니다. 새로고침하면 기록이 초기화됩니다.', 'muted'));
-    if (!records.length) log.append(make('p', '아직 조회 기록이 없습니다.'));
-    const list = make('ol', undefined, 'records');
-    for (const row of records) {
-      const item = make('li', undefined, 'event'); item.append(make('p', `${time(row.at)} (한국 시간) · ${row.text}`, 'item-title'));
-      for (const note of row.notes) item.append(make('p', note));
-      list.append(item);
-    }
-    log.append(list); select(activeDetailsTab);
-    return box;
+    return indicators;
   }
   // SVG 표시 속성을 써서 제공 화면의 CSP와 색 테마를 그대로 따른다.
   function bar(label, value) {
@@ -309,10 +271,10 @@ function createPcDashboard(api, onChange) {
     root.append(make('p', '서버를 다른 기기에서 실행하면 사용자 PC의 실측값이 아닙니다. 네트워크 추정값은 실제 송수신 사용량·최대 회선 속도와 다를 수 있습니다.', 'muted'));
     const loading = phase === 'idle' || phase === 'loading';
     const controls = make('div', undefined, 'row');
-    const refresh = make('button', loading ? current ? '갱신 중…' : '실측 조회 중…' : '상태 조회·기록', 'btn'); refresh.type = 'button';
+    const refresh = make('button', loading ? current ? '갱신 중…' : '실측 조회 중…' : '상태 조회', 'btn'); refresh.type = 'button';
     refresh.disabled = loading; refresh.addEventListener('click', read); controls.append(refresh);
     const autoLabel = make('label', undefined, 'btn');
-    autoLabel.title = '화면이 보이는 동안 조회가 끝난 뒤 30초마다 다시 측정합니다.';
+    autoLabel.title = '화면이 보이는 동안 조회가 끝난 뒤 10초마다 다시 측정합니다.';
     const auto = make('input'); auto.type = 'checkbox'; auto.checked = autoRefresh;
     auto.dataset.pcAutoRefresh = '';
     auto.addEventListener('change', () => {
@@ -320,13 +282,13 @@ function createPcDashboard(api, onChange) {
       if (autoRefresh && !document.hidden && !pageHidden && phase !== 'loading') void read();
       else {notify(); scheduleAutoRefresh();}
     });
-    autoLabel.append(auto, make('span', ' 30초마다 자동 조회')); controls.append(autoLabel); root.append(controls);
+    autoLabel.append(auto, make('span', ' 10초마다 자동 조회')); controls.append(autoLabel); root.append(controls);
     const stale = current && Date.now() - Date.parse(current.measuredAt) > 60000;
-    const autoStatus = autoRefresh ? document.hidden || pageHidden ? '화면 숨김 · 자동 조회 일시 중지' : '30초마다 자동 조회 중'
+    const autoStatus = autoRefresh ? document.hidden || pageHidden ? '화면 숨김 · 자동 조회 일시 중지' : '10초마다 자동 조회 중'
       : '마지막 조회 결과이며 실시간 감시는 아닙니다.';
     const status = make('p', current
-      ? `${phase === 'error' ? '갱신 실패 · 마지막 측정값 유지. 조회 기록을 확인하세요. · ' : ''}마지막 측정: ${time(current.measuredAt)} (한국 시간) · ${stale ? '오래된 기록 · ' : ''}${autoStatus}`
-      : phase === 'error' ? `조회 실패 · 현재 값 확인 불가. 조회 기록 탭을 확인하세요. ${autoRefresh ? autoStatus : '다시 조회하세요.'}`
+      ? `${phase === 'error' ? `갱신 실패 · 마지막 측정값 유지. ${lastError} · ` : ''}마지막 측정: ${time(current.measuredAt)} (한국 시간) · ${stale ? '오래된 기록 · ' : ''}${autoStatus}`
+      : phase === 'error' ? `조회 실패 · 현재 값 확인 불가. ${lastError} ${autoRefresh ? autoStatus : ''}`
       : '첫 측정값을 불러오고 있습니다.');
     status.setAttribute('role', 'status'); root.append(status);
     const cards = make('div', undefined, 'grid-2');
@@ -346,13 +308,33 @@ function createPcDashboard(api, onChange) {
           if (metric.detail) card.append(make('p', metric.detail, 'muted'));
         }
         if (usable && metric.value === null) card.append(make('p', metric.reason, 'muted'));
+        if (key === 'disk') {
+          const warning = make('p', '디스크 여유 10% 미만: 파일을 확인하고 백업하세요.', 'muted');
+          warning.hidden = !usable || metric.value === null || metric.value >= 10 || stale || phase === 'error';
+          card.append(warning);
+        }
+        if (Object.hasOwn(overloadCounts, key)) {
+          const count = overloadCounts[key];
+          const outdated = stale || phase === 'error';
+          const state = outdated || !usable || metric.value === null ? 'unavailable'
+            : count >= overloadReadings ? 'sustained' : count ? 'elevated' : 'normal';
+          card.dataset.overload = state;
+          const notice = make('p', undefined, 'pc-overload-notice');
+          notice.setAttribute('aria-live', 'polite'); notice.setAttribute('aria-atomic', 'true');
+          notice.hidden = outdated ? !(usable && metric.value !== null && metric.value >= overloadThreshold) : !count;
+          const icon = make('span', outdated ? 'ⓘ' : '⚠'); icon.setAttribute('aria-hidden', 'true');
+          const message = outdated ? '과거 측정 · 연속 여부를 확인하려면 다시 조회하세요.'
+            : count >= overloadReadings ? `${titles[key]} 사용량이 계속 높습니다. (${count}회 연속 ${overloadThreshold}% 이상)`
+            : `높은 사용량 감지 · 연속 ${count}/${overloadReadings}회 (${overloadThreshold}% 이상)`;
+          notice.append(icon, make('span', message)); card.append(notice);
+        }
         if (key === 'network') card.append(make('p', '출처: 브라우저 연결 정보 · 다운로드 대역폭 추정값. 업로드 속도는 제공되지 않습니다.', 'muted'));
         group.append(card);
       }
       cards.append(group);
     }
     root.append(cards);
-    root.append(details(stale, loading));
+    root.append(indicatorsSection(stale, loading));
     return root;
   };
 }
@@ -754,7 +736,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       renderList();
       return root;
     },
-    renderStatus({ devices, sessions, notifications, diagnostics, mode } = {}) {
+    renderStatus({ notifications, diagnostics, mode } = {}) {
       const root = document.createElement('section');
       root.append(renderPcDashboard());
       const appendText = (parent, tag, text) => {
@@ -779,69 +761,10 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
           appendText(section, 'p', `${name} 연결 상태: ${modeLabels[resource.mode]}`);
         }
       };
-      const resourceError = (section, name, resource) => {
-        const code = typeof resource?.error?.code === 'string' ? resource.error.code : '';
-        const message = safeValue(resource?.error?.message, '서버가 오류 내용을 제공하지 않았습니다.');
-        const timeout = code === 'TIMEOUT' || /시간이 초과|시간 초과|timed out|timeout/i.test(message);
-        const unverified = ['CONTRACT_MISMATCH', 'ENGINE_RESULT_UNVERIFIED'].includes(code);
-        appendText(section, 'p', `${name}: ${unverified ? '확인 불가' : timeout ? '조회 시간 초과' : '불러오지 못했습니다'}: ${message}`);
-        appendText(section, 'p', '다시 시도는 위쪽 「다시 불러오기」 버튼을 직접 누르세요. 자동으로 다시 요청하지 않습니다.');
-      };
 
-      appendText(root, 'h3', '기기·세션·알림·도움정보');
+      appendText(root, 'h3', '알림·도움정보');
       if (modeLabels[mode]) appendText(root, 'p', `연결 상태: ${modeLabels[mode]}`);
 
-      const devicesSection = document.createElement('section');
-      appendText(devicesSection, 'h4', '기기');
-      resourceMode(devicesSection, '기기', devices);
-      if (devices?.status === 'loading') {
-        appendText(devicesSection, 'p', '기기: 불러오는 중');
-      } else if (devices?.status === 'error') {
-        resourceError(devicesSection, '기기', devices);
-      } else if (devices?.status === 'ok' && Array.isArray(devices.data)) {
-        if (devices.data.length === 0) {
-          appendText(devicesSection, 'p', '등록된 기기가 없습니다.');
-        } else {
-          const list = document.createElement('ul');
-          const labels = { compliant: '보안 기준 충족', noncompliant: '보안 기준 미충족', unknown: '확인 불가' };
-          for (const device of devices.data) {
-            const label = safeValue(device?.label, '이름 확인 불가');
-            const id = safeValue(device?.id);
-            const status = safeValue(device?.status);
-            appendText(list, 'li', `${label} · ID: ${id} · ${labels[status] || '확인 불가'} (${status})`);
-          }
-          devicesSection.append(list);
-        }
-      } else {
-        appendText(devicesSection, 'p', '기기 상태를 확인할 수 없습니다.');
-      }
-      root.append(devicesSection);
-
-      const sessionsSection = document.createElement('section');
-      appendText(sessionsSection, 'h4', '세션');
-      resourceMode(sessionsSection, '세션', sessions);
-      appendText(sessionsSection, 'p', '세션 조회는 현재 검증된 연결 한 개이며 과거 세션 목록이 아닙니다.');
-      if (sessions?.status === 'loading') {
-        appendText(sessionsSection, 'p', '세션: 불러오는 중');
-      } else if (sessions?.status === 'error') {
-        resourceError(sessionsSection, '세션', sessions);
-      } else if (sessions?.status === 'ok' && Array.isArray(sessions.data)) {
-        if (sessions.data.length === 0) {
-          appendText(sessionsSection, 'p', '현재 연결이 없습니다.');
-        } else {
-          const list = document.createElement('ul');
-          const labels = { active: '활성', expired: '만료', revoked: '철회됨', unknown: '확인 불가' };
-          for (const session of sessions.data) {
-            const id = safeValue(session?.id);
-            const status = safeValue(session?.status);
-            appendText(list, 'li', `${id} · ${labels[status] || '확인 불가'} (${status})`);
-          }
-          sessionsSection.append(list);
-        }
-      } else {
-        appendText(sessionsSection, 'p', '세션 상태를 확인할 수 없습니다.');
-      }
-      root.append(sessionsSection);
 
       const notificationsSection = document.createElement('section');
       appendText(notificationsSection, 'h4', '알림');
