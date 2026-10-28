@@ -6,7 +6,6 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
   <title>케셰브 · ZTNA &amp; XDR</title>
-  <script src="/theme.js"></script>
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/student/appearance.css">
   <script type="module" src="/app.js"></script>
@@ -23,19 +22,31 @@
     <div class="topbar-status">
       <span id="mode-badge" class="mode-badge" data-mode="loading" role="status" aria-live="polite">상태 확인 중</span>
       <span id="checked-at" class="checked-at"></span>
-      <button type="button" id="theme-toggle" class="btn" aria-label="현재 다크 모드. 기본 모드로 전환">기본 모드로</button>
       <button type="button" id="refresh" class="btn">다시 불러오기</button>
     </div>
   </header>
 
   <div class="layout">
     <nav class="sidebar" aria-label="주 메뉴">
+      <div class="sidebar-content">
       <div role="tablist" aria-orientation="vertical" id="nav">
         <button type="button" role="tab" id="tab-protection" data-testid="nav-protection" data-view="protection" aria-controls="view-protection" aria-selected="true" tabindex="0">보호 현황</button>
         <button type="button" role="tab" id="tab-apps" data-testid="nav-apps" data-view="apps" aria-controls="view-apps" aria-selected="false" tabindex="-1">업무 앱</button>
         <button type="button" role="tab" id="tab-records" data-testid="nav-records" data-view="records" aria-controls="view-records" aria-selected="false" tabindex="-1">보안 기록</button>
       </div>
       <p class="sidebar-note">메뉴는 위·아래 방향키로 이동할 수 있습니다.</p>
+      </div>
+      <div class="sidebar-footer">
+        <button type="button" id="theme-toggle" class="btn theme-toggle" aria-label="현재 다크 모드. 라이트 모드로 전환" title="라이트 모드로 전환" disabled>
+          <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="4"></circle>
+            <path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path>
+          </svg>
+          <svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M20.9 13A9 9 0 0 1 11 3.1 9 9 0 1 0 20.9 13Z"></path>
+          </svg>
+        </button>
+      </div>
     </nav>
 
     <main id="main" tabindex="-1">

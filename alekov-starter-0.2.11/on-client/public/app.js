@@ -3,6 +3,9 @@
 // 기존 연결의 자동 재시도 없음. 로컬 PC 조회의 주기적 확인은 학생이 직접 선택한다.
 import { normalizeScan, createVulnerabilitiesView } from '/vulnerabilities-view.mjs';
 import {mountPcStatus} from '/pc-status-view.mjs';
+import {initTheme} from '/student-appearance.mjs';
+
+initTheme();
 
 const STUDENT_MODULE = '/student/extension.mjs';
 const STUDENT_PENDING = '학생 구현 대기';
@@ -499,6 +502,7 @@ function renderErrors() {
 // ---------- 메뉴 ----------
 
 function selectView(view, { focus = false } = {}) {
+  const changed = state.view !== view;
   state.view = view;
   for (const tab of document.querySelectorAll('#nav [role="tab"]')) {
     const selected = tab.dataset.view === view;
@@ -507,6 +511,7 @@ function selectView(view, { focus = false } = {}) {
     if (selected && focus) tab.focus();
     $(tab.getAttribute('aria-controls')).hidden = !selected;
   }
+  if (changed) $('main').scrollTop = 0;
 }
 
 function setupNav() {

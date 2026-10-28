@@ -54,7 +54,12 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; }
+html { height: 100%; overflow: hidden; }
+body {
+  margin: 0; height: 100vh; height: 100dvh;
+  display: grid; grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
 a { color: var(--accent); }
 h1 { font-size: 1.5rem; margin: 0 0 16px; }
 h2 { font-size: 1.05rem; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -117,9 +122,18 @@ h4 { font-size: 0.9rem; margin: 0 0 4px; color: var(--muted); }
 /* 배치 */
 .layout {
   display: grid; grid-template-columns: 220px minmax(0, 1fr);
-  min-height: calc(100vh - 60px);
+  grid-template-rows: minmax(0, 1fr); min-height: 0; overflow: hidden;
 }
-.sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 16px 12px; min-width: 0; }
+.sidebar {
+  background: var(--surface); border-right: 1px solid var(--border); padding: 16px 12px;
+  display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
+}
+.sidebar-content { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.sidebar-footer { margin-top: auto; padding-top: 16px; flex-shrink: 0; display: flex; justify-content: flex-start; }
+.sidebar-footer .theme-toggle { width: 44px; height: 44px; padding: 10px; display: inline-flex; align-items: center; justify-content: center; }
+.theme-toggle svg { width: 20px; height: 20px; flex: none; pointer-events: none; }
+:root:not([data-theme="light"]) .theme-icon-moon,
+:root[data-theme="light"] .theme-icon-sun { display: none; }
 #nav { display: flex; flex-direction: column; gap: 4px; }
 #nav [role="tab"] {
   text-align: left; padding: 10px 12px; border: 0; border-radius: var(--radius);
@@ -130,7 +144,12 @@ h4 { font-size: 0.9rem; margin: 0 0 4px; color: var(--muted); }
 #nav [role="tab"][aria-selected="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .sidebar-note { color: var(--muted); font-size: 0.8rem; margin: 16px 4px 0; }
 
-main { padding: 24px 32px 48px; max-width: 1400px; min-width: 0; }
+/* 화면 바깥은 고정하고 중앙 영역 안에서만 스크롤한다. 기존 콘텐츠 최대 폭은 유지한다. */
+main {
+  padding: 24px 32px 48px; min-width: 0; min-height: 0;
+  overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
+}
+main > * { max-width: 1336px; }
 main:focus { outline: none; }
 
 .notice {
@@ -279,8 +298,8 @@ main:focus { outline: none; }
    위·아래 방향키 탐색과 aria-orientation="vertical" 계약이 바뀌지 않는다. 큰 표·도움정보 칸만 제 안에서 가로로 넘친다. */
 @media (max-width: 860px) {
   .topbar { padding: 8px 16px; }
-  .layout { grid-template-columns: minmax(0, 1fr); min-height: 0; }
-  .sidebar { border-right: 0; border-bottom: 1px solid var(--border); padding: 12px; }
+  .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .sidebar { border-right: 0; border-bottom: 1px solid var(--border); padding: 12px; max-height: 30vh; max-height: 30dvh; }
   .sidebar-note { margin-top: 8px; }
   main { padding: 16px 16px 40px; }
   .grid-2 { grid-template-columns: minmax(0, 1fr); }

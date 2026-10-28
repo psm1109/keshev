@@ -1,48 +1,61 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 import {EventEmitter} from 'node:events';
 import {correctDarkAppearancePalette, correctAppearancePalette, contrastRatio, APPEARANCE_DARK_FOREGROUNDS,
   APPEARANCE_FIXED_FOREGROUNDS, parseStudentAppearance, appearanceView, appearanceCss} from '../src/student-appearance.mjs';
 import {createOnServer} from '../src/server.mjs';
+import {initTheme} from '../public/student-appearance.mjs';
 
-const source = readFileSync(new URL('../public/theme.js', import.meta.url), 'utf8');
+const source = readFileSync(new URL('../public/student-appearance.mjs', import.meta.url), 'utf8');
 const storageKey = 'alekov.ui-theme.v1';
-function browser({saved = null, blocked = false} = {}) {
+function browser({saved = null, blocked = false, readyState = 'loading'} = {}) {
   const domEvents = {}, windowEvents = {}, buttonEvents = {}, attributes = {}, writes = [];
-  const button = {setAttribute: (key, value) => attributes[key] = value,
-    addEventListener: (key, callback) => buttonEvents[key] = callback};
-  let ready = false;
-  const document = {documentElement: {dataset: {}}, readyState: 'loading',
+  const icons = ['sun', 'moon'];
+  const button = {children: icons, disabled: true, setAttribute: (key, value) => attributes[key] = value,
+    set textContent(value) {throw Error('아이콘을 텍스트로 덮어쓰면 안 됩니다.');},
+    addEventListener: (key, callback) => (buttonEvents[key] ??= []).push(callback)};
+  let ready = readyState !== 'loading';
+  const document = {documentElement: {dataset: {}}, readyState,
     getElementById: id => ready && id === 'theme-toggle' ? button : null,
     addEventListener: (key, callback) => domEvents[key] = callback};
-  const context = vm.createContext({document, window: {addEventListener: (key, callback) => windowEvents[key] = callback},
+  const window = {addEventListener: (key, callback) => windowEvents[key] = callback,
     localStorage: {getItem: () => {if (blocked) throw Error('blocked'); return saved;},
-      setItem: (key, value) => {if (blocked) throw Error('blocked'); writes.push([key, value]);}}});
-  vm.runInContext(source, context);
-  return {document, button, attributes, writes, windowEvents,
-    mount() {ready = true; domEvents.DOMContentLoaded();}, click() {buttonEvents.click();}};
+      setItem: (key, value) => {if (blocked) throw Error('blocked'); writes.push([key, value]);}}};
+  initTheme(document, window);
+  return {document, button, attributes, writes, windowEvents, window,
+    mount() {ready = true; document.readyState = 'interactive'; domEvents.DOMContentLoaded();},
+    click() {for (const callback of buttonEvents.click) callback();}};
 }
 
-test('first visit is dark before the controls mount; switching persists both modes', () => {
+test('first visit is dark; the icon button enables switching and persists both modes', () => {
   const page = browser();
   assert.equal(page.document.documentElement.dataset.theme, 'dark');
-  page.mount(); assert.equal(page.button.textContent, '기본 모드로');
+  page.mount(); assert.equal(page.button.title, '라이트 모드로 전환');
+  assert.equal(page.button.disabled, false);
   page.click(); assert.equal(page.document.documentElement.dataset.theme, 'light');
-  assert.equal(page.button.textContent, '다크 모드로');
-  assert.match(page.attributes['aria-label'], /현재 기본 모드/);
+  assert.equal(page.button.title, '다크 모드로 전환');
+  assert.match(page.attributes['aria-label'], /현재 라이트 모드/);
   page.click(); assert.equal(page.document.documentElement.dataset.theme, 'dark');
   assert.deepEqual(page.writes, [[storageKey, 'light'], [storageKey, 'dark']]);
+  assert.deepEqual(page.button.children, ['sun', 'moon']);
 });
 
 test('restores the saved mode and handles blocked or invalid storage', () => {
   const restored = browser({saved: 'light'});
   assert.equal(restored.document.documentElement.dataset.theme, 'light');
-  restored.mount(); assert.equal(restored.button.textContent, '다크 모드로');
+  restored.mount(); assert.equal(restored.button.title, '다크 모드로 전환');
   assert.equal(browser({saved: 'invalid'}).document.documentElement.dataset.theme, 'dark');
   const blocked = browser({blocked: true}); blocked.mount(); blocked.click();
   assert.equal(blocked.document.documentElement.dataset.theme, 'light');
+});
+
+test('initializes after DOM ready and repeated initialization does not double-toggle', () => {
+  const page = browser({readyState: 'interactive'});
+  assert.equal(page.button.disabled, false);
+  initTheme(page.document, page.window);
+  page.click(); assert.equal(page.document.documentElement.dataset.theme, 'light');
+  assert.equal(page.writes.length, 1);
 });
 
 test('other tabs can update or clear the saved preference', () => {
@@ -89,9 +102,13 @@ test('appearance CSS supplies separate mode palettes without changing the JSON s
   assert.doesNotMatch(appearanceCss(appearanceView({state: 'absent'})), /:root/);
 });
 
-test('dark and light status colors remain readable, and theme restoration precedes styles', () => {
+test('icon button belongs to the sidebar footer and both mode palettes remain readable', () => {
   const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
-  assert.ok(html.indexOf('src="/theme.js"') < html.indexOf('href="/style.css"'));
+  assert.doesNotMatch(html, /src="\/theme.js"/);
+  const sidebar = html.slice(html.indexOf('<nav class="sidebar"'), html.indexOf('</nav>'));
+  assert.match(sidebar, /class="sidebar-footer"[\s\S]*id="theme-toggle"/);
+  assert.match(sidebar, /theme-icon-sun/); assert.match(sidebar, /theme-icon-moon/);
+  assert.equal((html.match(/id="theme-toggle"/g) ?? []).length, 1);
   assert.match(html, /<html[^>]*data-theme="dark"/);
   const css = readFileSync(new URL('../public/style.css', import.meta.url), 'utf8');
   const blocks = [css.match(/:root\s*\{([^}]+)\}/)[1], css.match(/:root:not\(\[data-theme="light"\]\)\s*\{([^}]+)\}/)[1]];
@@ -106,7 +123,7 @@ test('dark and light status colors remain readable, and theme restoration preced
 });
 
 // Serve real route handlers in memory: no port binding, login, external API or PC measurement.
-test('server serves the theme script and both palettes under the existing CSP', async () => {
+test('theme control uses existing served modules without a new script route', async () => {
   const server = createOnServer({aiEnv: {}});
   server.address = () => ({port: 5189});
   async function request(url) {
@@ -119,10 +136,14 @@ test('server serves the theme script and both palettes under the existing CSP', 
     server.emit('request', req, res); return response;
   }
   try {
-    const script = await request('/theme.js');
+    const script = await request('/student-appearance.mjs');
     assert.equal(script.status, 200); assert.match(script.headers['content-type'], /javascript/);
     assert.match(script.headers['content-security-policy'], /script-src 'self'/);
     assert.equal(script.body, source);
+    assert.match(script.body, /export function initTheme/);
+    const app = await request('/app.js');
+    assert.equal(app.status, 200); assert.match(app.body, /import \{initTheme\} from '\/student-appearance.mjs'/);
+    const removed = await request('/theme.js'); assert.equal(removed.status, 404);
     const palette = await request('/student/appearance.css');
     assert.equal(palette.status, 200); assert.match(palette.body, /data-theme="dark"/);
     assert.match(palette.body, /--bg:#0f172a;--surface:#1e293b/);

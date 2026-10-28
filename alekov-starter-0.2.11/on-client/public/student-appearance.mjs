@@ -19,6 +19,42 @@ const isRecord = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 const exact = (v, keys) => isRecord(v) && Object.keys(v).length === keys.length && keys.every((k) => Object.hasOwn(v, k));
 const shortText = (v, max) => typeof v === 'string' && v.length > 0 && v.length <= max && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(v);
 
+// 기존 제공 경로로 초기화해 서버 재시작 전에도 새 route에 의존하지 않는다.
+const themeDocuments = new WeakSet();
+export function initTheme(doc = document, win = window) {
+  if (themeDocuments.has(doc)) return;
+  themeDocuments.add(doc);
+  const storageKey = 'alekov.ui-theme.v1', root = doc.documentElement;
+  function updateButton() {
+    const button = doc.getElementById('theme-toggle');
+    if (!button) return;
+    const dark = root.dataset.theme === 'dark';
+    button.setAttribute('aria-label', dark ? '현재 다크 모드. 라이트 모드로 전환' : '현재 라이트 모드. 다크 모드로 전환');
+    button.title = dark ? '라이트 모드로 전환' : '다크 모드로 전환';
+  }
+  function apply(value) {
+    root.dataset.theme = value === 'light' ? 'light' : 'dark';
+    updateButton();
+  }
+  let saved = null;
+  try { saved = win.localStorage.getItem(storageKey); } catch { /* 저장 차단 시 기본 다크 모드 */ }
+  apply(saved);
+  function bindButton() {
+    const button = doc.getElementById('theme-toggle');
+    if (!button) return;
+    updateButton(); button.disabled = false;
+    button.addEventListener('click', () => {
+      apply(root.dataset.theme === 'dark' ? 'light' : 'dark');
+      try { win.localStorage.setItem(storageKey, root.dataset.theme); } catch { /* 현재 화면의 선택은 유지 */ }
+    });
+  }
+  if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', bindButton, {once: true});
+  else bindButton();
+  win.addEventListener('storage', event => {
+    if (event.key === storageKey || event.key === null) apply(event.newValue);
+  });
+}
+
 // 서버 DTO 의 형식을 다시 확인한다. 맞지 않으면 null(적용하지 않고 기본 화면).
 export function checkAppearanceView(raw) {
   if (!exact(raw, VIEW_KEYS) || raw.schema !== APPEARANCE_VIEW_SCHEMA || !['absent', 'applied', 'invalid'].includes(raw.state)) return null;
