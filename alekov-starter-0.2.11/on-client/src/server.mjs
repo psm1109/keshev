@@ -29,7 +29,7 @@ const id=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.te
 const record=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const text=value=>typeof value==='string'&&value.length<=2000;
 const files=new Map([['/','public/index.html'],['/index.html','public/index.html'],['/app.js','public/app.js'],['/style.css','public/style.css'],['/vulnerabilities-view.mjs','public/vulnerabilities-view.mjs'],['/student/extension.mjs','student/extension.mjs'],
-  ['/ai-connect.mjs','public/ai-connect.mjs'],['/student-appearance.mjs','public/student-appearance.mjs'],['/pc-status-view.mjs','public/pc-status-view.mjs'],
+  ['/ai-connect.mjs','public/ai-connect.mjs'],['/student-appearance.mjs','public/student-appearance.mjs'],['/pc-status-view.mjs','public/pc-status-view.mjs'],['/theme.js','public/theme.js'],
   ...['alekov-ai-explain','alekov-app-icon','alekov-connect-approval','alekov-connection-unknown','alekov-empty-records'].map(name=>[`/assets/alekov/${name}.webp`,`public/assets/alekov/${name}.webp`])]);
 const connectionRoutes=new Map(['start','finish','status','cancel'].map(kind=>[`/api/ai/connect/${kind}`,kind]));
 // 학생 꾸밈 고정 route: 정규화 DTO, 검증된 색 변수 CSS, 꾸밈이 고른 허용 그림만. student 폴더 목록·임의 파일 제공은 없다.
@@ -466,7 +466,7 @@ export function createOnServer(serverOptions={}) {
         const kind=appearanceRoutes.get(url.pathname),read=await readStudentAppearance(resolve(assetsRoot)),view=appearanceView(read);
         const image=kind==='image'&&read.state==='valid'?read.images.find(row=>'/'+row.path===url.pathname)??null:null;
         if(kind==='image'&&!image){send(404,{ok:false,error:{code:'NOT_FOUND',message:'지원하지 않는 주소입니다.',retryable:false}});return;}
-        const data=kind==='json'?Buffer.from(JSON.stringify(view),'utf8'):kind==='css'?Buffer.from(appearanceCss(view),'utf8'):image.bytes;
+        const data=kind==='json'?Buffer.from(JSON.stringify(view),'utf8'):kind==='css'?Buffer.from(appearanceCss(view,read.state==='valid'?read.value.palette:null),'utf8'):image.bytes;
         res.writeHead(200,{'content-type':kind==='json'?'application/json; charset=utf-8':kind==='css'?'text/css; charset=utf-8':image.type,'cache-control':'no-store','content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'",'x-content-type-options':'nosniff'});res.end(data);return;
       }
       if(req.method==='POST'&&connectionRoutes.has(url.pathname)){

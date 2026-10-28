@@ -177,7 +177,7 @@ export function inspectAppearanceImage(kind,name,bytes){
   return Object.freeze({ok:true,...found});
 }
 
-// 대비 보정(도구 가독성용 순수 계산. 통과 조건이 아니다). 바탕·표면은 흰색 쪽으로, 강조색은 검정 쪽으로 최소한만 섞는다.
+// 기본 모드의 대비 보정. 다크 모드는 아래 별도 보정으로 학생이 고른 어두운 바탕을 유지한다.
 const rgb=hex=>[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16));
 const toHex=c=>'#'+c.map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join('');
 export const mixColor=(a,b,t)=>{const x=rgb(a),y=rgb(b);return toHex(x.map((v,i)=>v+(y[i]-v)*t));};
@@ -197,6 +197,19 @@ export function correctAppearancePalette(palette){
   return Object.freeze({accent,accentSoft,background,surface,corrected:Object.freeze(corrected)});
 }
 
+// 화면의 고정 다크 색(public/style.css)과 대비를 맞춘다. 학생 색으로 상태 의미를 바꾸지 않는다.
+export const APPEARANCE_DARK_FOREGROUNDS=Object.freeze({text:'#e2e8f0',muted:'#a8b6cb',allow:'#86efac',deny:'#fda4af',challenge:'#fcd34d',unknown:'#cbd5e1',student:'#d8b4fe'});
+export function correctDarkAppearancePalette(palette){
+  const asked={accent:'#60a5fa',background:'#0f172a',surface:'#1e293b',...(palette??{})};
+  const fronts=Object.values(APPEARANCE_DARK_FOREGROUNDS);
+  const darken=color=>{for(const t of STEPS){const c=mixColor(color,'#000000',t);if(readable(c,fronts))return c;}return '#000000';};
+  const background=darken(asked.background),surface=darken(asked.surface);
+  let accent='#ffffff',accentSoft=darken(mixColor(accent,surface,0.88));
+  for(const t of STEPS){const a=mixColor(asked.accent,'#ffffff',t),soft=darken(mixColor(a,surface,0.88));
+    if(readable(a,[background,surface,soft,'#0f172a'])&&readable(soft,[APPEARANCE_DARK_FOREGROUNDS.text,APPEARANCE_DARK_FOREGROUNDS.muted])){accent=a;accentSoft=soft;break;}}
+  return Object.freeze({accent,accentSoft,background,surface});
+}
+
 // 화면으로 보내는 정규화 DTO. 상태: absent(파일 없음 — 기존 화면 그대로) / applied / invalid(짧은 안내 + 기존 화면).
 export function appearanceView(read){
   const base={schema:APPEARANCE_VIEW_SCHEMA,state:'absent',appName:null,icon:null,startPicture:null,dashboardPreset:'default',palette:null,corrected:[],problem:null};
@@ -206,10 +219,13 @@ export function appearanceView(read){
   return Object.freeze({...base,state:'applied',appName:v.appName,icon:v.icon?'/'+appearanceImagePath(v.icon):null,startPicture:v.startPicture?'/'+appearanceImagePath(v.startPicture):null,dashboardPreset:v.dashboardPreset,
     palette:palette?Object.freeze({accent:palette.accent,accentSoft:palette.accentSoft,background:palette.background,surface:palette.surface}):null,corrected:palette?palette.corrected:[]});
 }
-// 같은 출처 고정 stylesheet. 검증·보정된 hex 4개 변수만 선언한다. 상태 의미 변수(allow/deny/challenge/unknown/focus/student)는 쓰지 않는다.
-export function appearanceCss(view){
+// 모드별로 검증·보정된 색 변수만 선언한다. 기존 DTO와 기본 모드의 보정 계약은 유지한다.
+export function appearanceCss(view,sourcePalette=null){
   const head='/* student/appearance.json 꾸밈: 검증된 색 변수만 선언합니다. 상태 색은 바꾸지 않습니다. */\n';
   const p=view?.state==='applied'?view.palette:null;if(!p)return head;
   for(const v of [p.accent,p.accentSoft,p.background,p.surface])if(!HEX6.test(v))return head;
-  return `${head}:root{--accent:${p.accent};--accent-soft:${p.accentSoft};--bg:${p.background};--surface:${p.surface}}\n`;
+  if(sourcePalette!==null&&(!sourcePalette||Object.entries(sourcePalette).some(([key,value])=>!PALETTE_KEYS.includes(key)||typeof value!=='string'||!HEX6.test(value))))return head;
+  const dark=correctDarkAppearancePalette(sourcePalette??{accent:p.accent});
+  return `${head}:root{--accent:${p.accent};--accent-soft:${p.accentSoft};--bg:${p.background};--surface:${p.surface}}\n`
+    +`:root[data-theme="dark"]{--accent:${dark.accent};--accent-soft:${dark.accentSoft};--bg:${dark.background};--surface:${dark.surface}}\n`;
 }

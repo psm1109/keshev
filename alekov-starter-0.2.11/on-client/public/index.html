@@ -1,11 +1,12 @@
 <!doctype html>
-<html lang="ko">
+<html lang="ko" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
   <title>케셰브 · ZTNA &amp; XDR</title>
+  <script src="/theme.js"></script>
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/student/appearance.css">
   <script type="module" src="/app.js"></script>
@@ -22,6 +23,7 @@
     <div class="topbar-status">
       <span id="mode-badge" class="mode-badge" data-mode="loading" role="status" aria-live="polite">상태 확인 중</span>
       <span id="checked-at" class="checked-at"></span>
+      <button type="button" id="theme-toggle" class="btn" aria-label="현재 다크 모드. 기본 모드로 전환">기본 모드로</button>
       <button type="button" id="refresh" class="btn">다시 불러오기</button>
     </div>
   </header>

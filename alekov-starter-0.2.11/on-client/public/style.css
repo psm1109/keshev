@@ -2,6 +2,7 @@
    PC에서 확대해 유효 폭이 좁아지면 맨 아래 미디어 쿼리가 한 열 배치로 바꾼다. 100% PC 배치는 그대로다. */
 
 :root {
+  color-scheme: light;
   --bg: #f5f6f8;
   --surface: #ffffff;
   --border: #d9dde3;
@@ -9,6 +10,7 @@
   --muted: #5a6472;
   --accent: #2357c6;
   --accent-soft: #e7eefc;
+  --accent-ink: #ffffff;
   --allow: #1d7a3e;
   --allow-soft: #e5f4ea;
   --deny: #b42318;
@@ -28,8 +30,32 @@
   background: var(--bg);
 }
 
+/* 기본은 다크 모드. 밝은 모드는 기존 화면 색과 학생 꾸밈의 대비 보정을 사용한다. */
+:root:not([data-theme="light"]) {
+  color-scheme: dark;
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --border: #475569;
+  --text: #e2e8f0;
+  --muted: #a8b6cb;
+  --accent: #60a5fa;
+  --accent-soft: #26384f;
+  --accent-ink: #0f172a;
+  --allow: #86efac;
+  --allow-soft: #143827;
+  --deny: #fda4af;
+  --deny-soft: #451a23;
+  --challenge: #fcd34d;
+  --challenge-soft: #3b2f16;
+  --unknown: #cbd5e1;
+  --unknown-soft: #273449;
+  --student: #d8b4fe;
+  --student-soft: #35224f;
+}
+
 * { box-sizing: border-box; }
 body { margin: 0; }
+a { color: var(--accent); }
 h1 { font-size: 1.5rem; margin: 0 0 16px; }
 h2 { font-size: 1.05rem; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 h3 { font-size: 1rem; margin: 0; }
@@ -62,7 +88,7 @@ h4 { font-size: 0.9rem; margin: 0 0 4px; color: var(--muted); }
 .brand-name { min-width: 0; overflow-wrap: anywhere; }
 .brand-mark {
   display: inline-grid; place-items: center; width: 32px; height: 32px;
-  border-radius: 50%; background: var(--accent); color: #fff; font-size: 0.95rem;
+  border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 0.95rem;
 }
 .brand-name small { font-weight: 400; color: var(--muted); margin-left: 6px; }
 .topbar-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }

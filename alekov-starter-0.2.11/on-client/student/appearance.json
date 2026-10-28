@@ -3,8 +3,8 @@
   "appName": "케셰브",
   "dashboardPreset": "student-first",
   "palette": {
-    "accent": "#1d4ed8",
-    "background": "#f1f5f9",
-    "surface": "#ffffff"
+    "accent": "#60a5fa",
+    "background": "#0f172a",
+    "surface": "#1e293b"
   }
 }
