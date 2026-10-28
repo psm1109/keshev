@@ -18,20 +18,37 @@ function createPcDashboard(api, onChange) {
       if (autoRefresh && !pageHidden && !document.hidden) void read();
     }, 30000);
   }
+  // 기존 노드를 유지하고 값·속성만 갱신해 카드와 그래프가 재조회 중 사라지지 않게 한다.
+  function updateElement(target, source) {
+    if (target.nodeType === 3) {
+      if (target.nodeValue !== source.nodeValue) target.nodeValue = source.nodeValue;
+      return;
+    }
+    for (const name of target.getAttributeNames()) {
+      if (target.localName === 'details' && name === 'open') continue;
+      if (!source.hasAttribute(name)) target.removeAttribute(name);
+    }
+    for (const name of source.getAttributeNames()) {
+      if (target.getAttribute(name) !== source.getAttribute(name)) target.setAttribute(name, source.getAttribute(name));
+    }
+    if (target.localName === 'input') target.checked = source.checked;
+    const children = [...source.childNodes];
+    const key = node => node.nodeType === 1 ? node.id || node.getAttribute('data-metric') || node.getAttribute('data-indicator') : null;
+    children.forEach((child, index) => {
+      const existing = target.childNodes[index];
+      if (!existing) target.append(child);
+      else if (existing.nodeType !== child.nodeType || existing.nodeName !== child.nodeName || key(existing) !== key(child)) existing.replaceWith(child);
+      else updateElement(existing, child);
+    });
+    while (target.childNodes.length > children.length) target.lastChild.remove();
+  }
   // 내 조회로 다른 학생 영역의 필터·선택을 다시 만들지 않는다.
   function notify() {
     const previous = mountedRoot;
     if (!previous?.isConnected) {onChange(); return;}
-    const hadFocus = previous.contains(document.activeElement);
-    const hadTabFocus = hadFocus && document.activeElement?.dataset.pcDetailsTab !== undefined;
-    const hadAutoFocus = hadFocus && document.activeElement?.dataset.pcAutoRefresh !== undefined;
     const next = renderView();
-    previous.replaceWith(next);
-    if (hadFocus) {
-      const button = next.querySelector(hadTabFocus ? '[role="tab"][aria-selected="true"]' : hadAutoFocus ? '[data-pc-auto-refresh]' : 'button');
-      if (!button.disabled) button.focus();
-      else {next.tabIndex = -1; next.focus();}
-    }
+    updateElement(previous, next);
+    mountedRoot = previous;
   }
   const titles = {cpu: 'CPU', memory: '메모리', disk: '디스크 여유', network: '네트워크 속도'};
   const finite = n => typeof n === 'number' && Number.isFinite(n) && n >= 0;
@@ -86,8 +103,7 @@ function createPcDashboard(api, onChange) {
   async function read() {
     if (pageHidden || phase === 'loading') return;
     stopAutoRefresh();
-    clearTimeout(expiryTimer);
-    phase = 'loading'; current = null; notify();
+    phase = 'loading'; notify();
     try {
       const result = await api?.get('/api/pc/status');
       if (result?.ok !== true) throw Error(result?.error?.code === 'TIMEOUT' ? 'TIMEOUT' : 'REQUEST_FAILED');
@@ -96,9 +112,10 @@ function createPcDashboard(api, onChange) {
       history.push({at: current.measuredAt, cpu: current.metrics.cpu.value, memory: current.metrics.memory.value, network: current.metrics.network.value});
       const available = Object.values(current.metrics).filter(m => m.value !== null).length;
       records.unshift({at: current.measuredAt, text: `${available === 4 ? '조회 성공' : '부분 결과'} · ${available}/4항목 확인`, notes: current.notes});
+      clearTimeout(expiryTimer);
       expiryTimer = setTimeout(notify, Math.max(1, 60001 - (Date.now() - Date.parse(current.measuredAt))));
     } catch (error) {
-      phase = 'error'; current = null;
+      phase = 'error';
       const at = new Date().toISOString();
       history.push({at, cpu: null, memory: null, network: null});
       records.unshift({at, text: '조회 실패 · 현재 값 확인 불가', notes: [error?.message === 'TIMEOUT' ? '시간 초과: 서버가 실행 중인지 확인하고 직접 다시 조회하세요.' : '응답이나 연결을 확인하지 못했습니다. 서버 상태를 확인하고 직접 다시 조회하세요.']});
@@ -212,7 +229,7 @@ function createPcDashboard(api, onChange) {
       entries.push({key, button, panel}); tabs.append(button); box.append(panel);
     }
     const [indicators, observations, log] = entries.map(entry => entry.panel);
-    if (loading) observations.append(make('p', '상태를 조회하고 있습니다.', 'muted'));
+    if (loading && !current) observations.append(make('p', '상태를 조회하고 있습니다.', 'muted'));
     else if (phase === 'error') observations.append(make('p', '현재 관측을 확인하지 못했습니다. 조회 기록에서 실패 내용을 확인하고 다시 조회하세요.'));
     else if (stale) observations.append(make('p', '마지막 조회값이 오래됐습니다. 현재 관측은 다시 조회하고, 과거 내용은 조회 기록에서 확인하세요.'));
     else if (current?.notes.length) {
@@ -222,8 +239,9 @@ function createPcDashboard(api, onChange) {
     } else observations.append(make('p', '이번 조회에서 사용률·디스크 여유 경고 조건에 해당하는 관측이 없습니다.'));
     observations.append(make('p', 'Windows 방화벽·Windows 기록은 제공 「내 PC 상태」에서 별도로 확인합니다. 이 대시보드의 네 항목으로 PC 전체 안전을 판단하지 않습니다.', 'muted'));
     indicators.append(make('p', '상태 조회마다 기록한 최근 12회의 변화입니다. 확인하지 못한 구간은 선을 잇지 않습니다. 새로고침하면 기록이 초기화됩니다.', 'muted'));
-    if (loading) indicators.append(make('p', '조회 중 · 그래프에는 이전 조회 기록이 표시됩니다.', 'muted'));
-    else if (phase === 'error' || stale) indicators.append(make('p', '그래프는 과거 기록입니다. 현재 상태는 다시 조회해 주세요.', 'muted'));
+    const indicatorStatus = make('p', phase === 'error' || stale ? '그래프는 과거 기록입니다. 현재 상태는 다시 조회해 주세요.' : '첫 측정값을 불러오고 있습니다.', 'muted');
+    indicatorStatus.hidden = !(phase === 'error' || stale || (loading && !history.length));
+    indicators.append(indicatorStatus);
     indicators.append(indicatorCards());
     if (history.length) {
       const measurements = make('details'); measurements.append(make('summary', '측정값 기록 보기'));
@@ -263,6 +281,7 @@ function createPcDashboard(api, onChange) {
     for (const [width, fill] of [[320, 'var(--accent-soft)'], [3.2 * value, 'var(--accent)']]) {
       const rect = document.createElementNS(ns, 'rect');
       for (const [key, attr] of Object.entries({width, height: 12, rx: 6, fill})) rect.setAttribute(key, String(attr));
+      if (fill === 'var(--accent)') rect.setAttribute('class', 'pc-usage-fill');
       svg.append(rect);
     }
     return svg;
@@ -290,7 +309,7 @@ function createPcDashboard(api, onChange) {
     root.append(make('p', '서버를 다른 기기에서 실행하면 사용자 PC의 실측값이 아닙니다. 네트워크 추정값은 실제 송수신 사용량·최대 회선 속도와 다를 수 있습니다.', 'muted'));
     const loading = phase === 'idle' || phase === 'loading';
     const controls = make('div', undefined, 'row');
-    const refresh = make('button', loading ? '실측 조회 중…' : '상태 조회·기록', 'btn'); refresh.type = 'button';
+    const refresh = make('button', loading ? current ? '갱신 중…' : '실측 조회 중…' : '상태 조회·기록', 'btn'); refresh.type = 'button';
     refresh.disabled = loading; refresh.addEventListener('click', read); controls.append(refresh);
     const autoLabel = make('label', undefined, 'btn');
     autoLabel.title = '화면이 보이는 동안 조회가 끝난 뒤 30초마다 다시 측정합니다.';
@@ -305,9 +324,10 @@ function createPcDashboard(api, onChange) {
     const stale = current && Date.now() - Date.parse(current.measuredAt) > 60000;
     const autoStatus = autoRefresh ? document.hidden || pageHidden ? '화면 숨김 · 자동 조회 일시 중지' : '30초마다 자동 조회 중'
       : '마지막 조회 결과이며 실시간 감시는 아닙니다.';
-    const status = make('p', loading ? '조회 중 · 이전 값을 현재 값으로 표시하지 않습니다.'
+    const status = make('p', current
+      ? `${phase === 'error' ? '갱신 실패 · 마지막 측정값 유지. 조회 기록을 확인하세요. · ' : ''}마지막 측정: ${time(current.measuredAt)} (한국 시간) · ${stale ? '오래된 기록 · ' : ''}${autoStatus}`
       : phase === 'error' ? `조회 실패 · 현재 값 확인 불가. 조회 기록 탭을 확인하세요. ${autoRefresh ? autoStatus : '다시 조회하세요.'}`
-      : `마지막 조회: ${time(current.measuredAt)} (한국 시간) · ${stale ? '오래됨: 60초 경과, 다시 조회하세요. · ' : ''}${autoStatus}`);
+      : '첫 측정값을 불러오고 있습니다.');
     status.setAttribute('role', 'status'); root.append(status);
     const cards = make('div', undefined, 'grid-2');
     // 제공 2열 배치를 중첩해 PC에서는 네 카드를 한 행에 표시한다.
@@ -315,7 +335,7 @@ function createPcDashboard(api, onChange) {
       const group = make('div', undefined, 'grid-2');
       for (const key of pair) {
         const card = make('article', undefined, 'card'); card.dataset.metric = key;
-        const metric = current?.metrics[key], usable = phase === 'ok' && !stale;
+        const metric = current?.metrics[key], usable = Boolean(current);
         card.append(make('h4', titles[key]));
         if (!usable || metric.value === null || key === 'network') {
           card.append(make('p', usable ? metric.text : loading ? '조회 중' : stale ? '오래된 값 · 재조회 필요' : '확인 불가'));

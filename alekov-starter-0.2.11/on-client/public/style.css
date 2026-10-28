@@ -73,6 +73,7 @@ h4 { font-size: 0.9rem; margin: 0 0 4px; color: var(--muted); }
 #pc-status .pc-metric { padding: 14px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); }
 #pc-status .pc-value { font-size: 1.15rem; font-weight: 650; margin: 8px 0; overflow-wrap: anywhere; }
 #pc-status .pc-metric[data-state="unavailable"] .pc-value { color: var(--unknown); }
+[data-student-dashboard] .pc-usage-fill { transition: width 240ms ease-out; }
 
 :focus-visible { outline: none; box-shadow: var(--focus); }
 
