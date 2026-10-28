@@ -330,6 +330,7 @@ main:focus { outline: none; }
 .student-diagnostics-heading h4 { margin: 0; }
 .student-diagnostics .student-diagnostics-toggle { display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; }
 .student-diagnostics .student-diagnostics-toggle:disabled { opacity: 1; cursor: default; }
+.student-diagnostics-arrow { font-size: 1.5rem; line-height: 1; }
 .student-diagnostics-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: stretch; margin-top: 8px; }
 .student-diagnostics-console { margin: 0; padding: 10px 12px; border-radius: var(--radius); background: #10151d; color: #e6edf3; font: 0.8rem/1.5 Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .student-diagnostics-info { min-width: 0; overflow-wrap: anywhere; }

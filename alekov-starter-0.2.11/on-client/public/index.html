@@ -60,6 +60,14 @@
 
       <section id="view-protection" class="view" role="tabpanel" aria-labelledby="tab-protection">
         <h1>보호 현황</h1>
+        <section class="card provided" aria-labelledby="identity-title">
+          <h2 id="identity-title">현재 로그인 <span class="tag">제공</span></h2>
+          <dl class="identity">
+            <dt>사용자</dt><dd data-testid="identity-user" id="identity-user">불러오는 중</dd>
+            <dt>기기</dt><dd data-testid="identity-device" id="identity-device">불러오는 중</dd>
+            <dt>세션</dt><dd data-testid="identity-session" id="identity-session">불러오는 중</dd>
+          </dl>
+        </section>
         <section id="pc-status" class="card provided" aria-label="내 PC 상태"></section>
         <section id="local-pc-notice" class="card provided local-pc-notice" data-testid="local-pc-notice" aria-labelledby="local-pc-notice-title" tabindex="-1" hidden>
           <h2 id="local-pc-notice-title">내 PC 점검 모드 <span class="tag">제공 · 실행 안내</span></h2>
@@ -75,21 +83,10 @@
           <img id="start-picture-image" class="start-picture-image" alt="" aria-hidden="true" draggable="false" decoding="async">
         </figure>
 
-        <div class="grid-2">
-          <section class="card provided" aria-labelledby="identity-title">
-            <h2 id="identity-title">현재 로그인 <span class="tag">제공</span></h2>
-            <dl class="identity">
-              <dt>사용자</dt><dd data-testid="identity-user" id="identity-user">불러오는 중</dd>
-              <dt>기기</dt><dd data-testid="identity-device" id="identity-device">불러오는 중</dd>
-              <dt>세션</dt><dd data-testid="identity-session" id="identity-session">불러오는 중</dd>
-            </dl>
-          </section>
-
-          <section class="card student" aria-labelledby="student-identity-title">
-            <h2 id="student-identity-title">학생 구현 표시 <span class="tag tag-student">student/extension.mjs · renderIdentity</span></h2>
-            <div id="student-identity" class="student-slot" aria-live="polite"></div>
-          </section>
-        </div>
+        <section class="card student" aria-labelledby="student-identity-title">
+          <h2 id="student-identity-title">학생 구현 표시 <span class="tag tag-student">student/extension.mjs · renderIdentity</span></h2>
+          <div id="student-identity" class="student-slot" aria-live="polite"></div>
+        </section>
 
         <div class="grid-2">
           <section class="card provided" aria-labelledby="devices-title">
@@ -118,6 +115,15 @@
           <pre id="diag-output" class="diag-output" tabindex="0" hidden></pre>
         </section>
 
+        <section id="ai-connection-card" class="card provided" aria-labelledby="ai-connection-title">
+          <h2 id="ai-connection-title">AI 연결 점검 <span class="tag">제공</span></h2>
+          <p class="muted">현재 로그인과 앱 권한으로 모델 응답을 점검합니다. 설정값 존재·모델 목록 응답은 사건 설명의 성공과 별도로 확인합니다. 브라우저에서 열쇠를 입력하거나 복사하지 않습니다.</p>
+          <div class="row">
+            <button type="button" id="ai-check" class="btn">AI 연결 점검</button>
+            <button type="button" id="ai-check-cancel" class="btn" disabled>AI 연결 점검 취소</button>
+          </div>
+          <div id="ai-connection-result" class="ai-result" data-state="idle" aria-live="polite"></div>
+        </section>
         <section id="ai-connect-card" class="card provided" aria-labelledby="ai-connect-title" data-testid="ai-connect-card">
           <h2 id="ai-connect-title">AI 연결 <span class="tag">제공 · 17단계 연결 절차</span></h2>
           <div class="connect-layout">
@@ -171,15 +177,6 @@
           </div>
         </section>
 
-        <section id="ai-connection-card" class="card provided" aria-labelledby="ai-connection-title">
-          <h2 id="ai-connection-title">AI 연결 점검 <span class="tag">제공</span></h2>
-          <p class="muted">현재 로그인과 앱 권한으로 모델 응답을 점검합니다. 설정값 존재·모델 목록 응답은 사건 설명의 성공과 별도로 확인합니다. 브라우저에서 열쇠를 입력하거나 복사하지 않습니다.</p>
-          <div class="row">
-            <button type="button" id="ai-check" class="btn">AI 연결 점검</button>
-            <button type="button" id="ai-check-cancel" class="btn" disabled>AI 연결 점검 취소</button>
-          </div>
-          <div id="ai-connection-result" class="ai-result" data-state="idle" aria-live="polite"></div>
-        </section>
         <section class="card student" aria-labelledby="student-ai-connection-title">
           <h2 id="student-ai-connection-title">학생 AI 연결 표시 <span class="tag tag-student">student/extension.mjs · renderAiConnection</span></h2>
           <div id="student-ai-connection" class="student-slot" aria-live="polite"></div>

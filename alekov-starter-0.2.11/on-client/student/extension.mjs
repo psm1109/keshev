@@ -957,7 +957,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       const details = document.createElement('div'); details.id = 'student-diagnostics-details';
       const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'btn student-diagnostics-toggle';
       const label = document.createElement('span'); label.textContent = '도움정보';
-      const arrow = document.createElement('span'); arrow.setAttribute('aria-hidden', 'true');
+      const arrow = document.createElement('span'); arrow.className = 'student-diagnostics-arrow'; arrow.setAttribute('aria-hidden', 'true');
       toggle.append(label, arrow);
       toggle.disabled = diagnostics?.status !== 'ok';
       arrow.hidden = toggle.disabled;

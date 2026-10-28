@@ -97,7 +97,14 @@ export function arrangeDashboard(doc, preset) {
     // 제목과 첫 화면 그림은 맨 위에 그대로 둔다. 나머지 카드 묶음만 재배치한다.
     const blocks = [...view.children].filter((node) => node.tagName !== 'H1' && !node.classList.contains('start-picture'));
     for (const grid of blocks.filter((node) => node.classList.contains('grid-2'))) moved += reorder(grid, studentFirst([...grid.children], isStudentCard));
-    moved += reorder(view, studentFirst(blocks, holdsStudent));
+    const ordered = studentFirst(blocks, holdsStudent);
+    const aiConnect = ordered.find((node) => node.id === 'ai-connect-card');
+    const studentAi = ordered.find((node) => node.getAttribute('aria-labelledby') === 'student-ai-connection-title');
+    if (aiConnect && studentAi) {
+      ordered.splice(ordered.indexOf(aiConnect), 1);
+      ordered.splice(ordered.indexOf(studentAi), 0, aiConnect);
+    }
+    moved += reorder(view, ordered);
   }
   if (active && active !== doc.activeElement && typeof active.focus === 'function' && active.isConnected) active.focus({ preventScroll: true });
   return moved;
