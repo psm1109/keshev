@@ -1169,10 +1169,26 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
     renderAiConnection({ status, mode, data, error, checkedAt, explanationAccepted } = {}) {
       const root = document.createElement('section');
       root.className = 'student-view';
+      const checkButton = document.createElement('button');
+      checkButton.type = 'button';
+      checkButton.className = 'btn';
+      checkButton.textContent = status === 'loading' ? 'AI 연결 점검 중…' : '현재 AI 연결 점검';
+      const providedCheck = document.getElementById('ai-check');
+      checkButton.disabled = status === 'loading' || !providedCheck || providedCheck.disabled;
+      checkButton.addEventListener('click', () => {
+        const target = document.getElementById('ai-check');
+        if (checkButton.disabled || !target || target.disabled) return;
+        checkButton.disabled = true;
+        target.click();
+      });
+      const actions = document.createElement('div');
+      actions.className = 'row';
+      actions.append(checkButton);
+      root.append(actions);
       const appendText = (tag, text) => {
         const node = document.createElement(tag);
         node.textContent = String(text);
-        root.append(node);
+        root.insertBefore(node, actions);
         return node;
       };
       const safeCodes = new Set([
@@ -1198,7 +1214,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
 
       if (status === 'idle') {
         appendText('p', 'AI 연결 점검 전');
-        appendText('p', '다시 점검하려면 「현재 API 연결 점검」 버튼을 직접 누르세요. 자동으로 점검하지 않습니다.');
+        appendText('p', '다시 점검하려면 「현재 AI 연결 점검」 버튼을 직접 누르세요. 자동으로 점검하지 않습니다.');
         return root;
       }
       if (status === 'loading') {
@@ -1237,7 +1253,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
           AI_REQUEST_UNVERIFIED: '연결 결과를 확인할 수 없습니다. 계정 연결과 앱 권한을 담당자에게 확인해 달라고 요청하세요.',
         }[code] || '오류 원인을 확인할 수 없습니다. 안전한 오류 코드와 메시지를 담당자에게 전달해 확인을 요청하세요.';
         appendText('p', guidance);
-        appendText('p', '다시 점검하려면 「현재 API 연결 점검」 버튼을 직접 누르세요. 자동으로 재점검하지 않습니다.');
+        appendText('p', '다시 점검하려면 「현재 AI 연결 점검」 버튼을 직접 누르세요. 자동으로 재점검하지 않습니다.');
         appendText('p', '요청 실패는 사건 설명의 성공이나 접근 거부 판정이 아닙니다.');
         return root;
       }
@@ -1256,7 +1272,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       appendText('p', `응답 모델 수(modelCount): ${Number.isInteger(data.modelCount) && data.modelCount >= 0 ? data.modelCount : '확인 불가'}`);
       appendText('p', `점검 시각(checkedAt): ${typeof checkedAt === 'string' && checkedAt ? checkedAt : '확인 불가'}`);
       appendText('p', '이 결과는 연결과 모델 목록 응답만 점검했습니다. 사건 설명은 아직 실행하지 않았습니다.');
-      appendText('p', '다시 점검하려면 「현재 API 연결 점검」 버튼을 직접 누르세요. 자동으로 재점검하지 않습니다.');
+      appendText('p', '다시 점검하려면 「현재 AI 연결 점검」 버튼을 직접 누르세요. 자동으로 재점검하지 않습니다.');
       return root;
     },
     renderExplanation({ event, explanation, checkedAt } = {}) {
