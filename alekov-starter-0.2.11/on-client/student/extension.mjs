@@ -434,9 +434,11 @@ function createPcDashboard(api, onChange) {
 
 export function createStudentView({ api, onChange = () => {} } = {}) {
   const renderPcDashboard = createPcDashboard(api, onChange);
+  let diagnosticsExpanded = true;
   return {
     renderIdentity({ me, devices, sessions }) {
       const root = document.createElement('div');
+      root.className = 'student-view student-identity-view';
 
       const appendText = (parent, tag, text) => {
         const node = document.createElement(tag);
@@ -458,7 +460,20 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
         unknown: '확인 불가',
       }[status] || '확인 불가');
 
+      const errorKey = resource => resource.status === 'error' && typeof resource.error?.code === 'string' && resource.error.code
+        && typeof resource.error?.message === 'string' && resource.error.message
+        ? JSON.stringify([resource.error.code, resource.error.message]) : null;
+      const errorGroups = new Map();
+      for (const resource of [me, devices, sessions]) {
+        const key = errorKey(resource);
+        if (key) errorGroups.set(key, (errorGroups.get(key) || 0) + 1);
+      }
+      for (const [key, count] of errorGroups) {
+        if (count > 1) appendText(root, 'p', JSON.parse(key)[1]);
+      }
+
       const appendMode = (section, name, resource) => {
+        if (resource.status === 'error' && resource.mode !== 'demo') return;
         const modeText = {
           demo: '예제 자료',
           disconnected: '연결 없음',
@@ -477,7 +492,9 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
             ? resource.error.message
             : '서버가 오류 내용을 제공하지 않았습니다.';
           const unverified = ['CONTRACT_MISMATCH', 'ENGINE_RESULT_UNVERIFIED'].includes(resource.error?.code);
-          appendText(section, 'p', `${name}: ${unverified ? '확인 불가' : '연결 실패'}: ${message}`);
+          const label = unverified ? '확인 불가' : resource.mode === 'disconnected' ? '연결 없음' : '연결 실패';
+          const repeated = (errorGroups.get(errorKey(resource)) || 0) > 1;
+          appendText(section, 'p', `${name}: ${label}${repeated ? '' : `: ${message}`}`);
           return false;
         }
         if (resource.status !== 'ok') {
@@ -488,22 +505,20 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       };
 
       const identitySection = document.createElement('section');
-      appendText(identitySection, 'h3', '로그인 사용자·현재 기기·세션');
+      identitySection.className = 'student-section';
+      appendText(identitySection, 'h3', '로그인 사용자');
       appendMode(identitySection, '로그인 정보', me);
       if (appendResourceState(identitySection, '로그인 정보', me)) {
-        const { user, device, session } = me.data;
+        const { user } = me.data;
         const identity = document.createElement('dl');
         appendText(identity, 'dt', '사용자');
         appendText(identity, 'dd', `${user.label || user.id} · ID: ${user.id}`);
-        appendText(identity, 'dt', '현재 기기');
-        appendText(identity, 'dd', `${device.label || device.id} · ID: ${device.id} · ${deviceStatusLabel(device.status)} (${device.status})`);
-        appendText(identity, 'dt', '현재 세션');
-        appendText(identity, 'dd', `${session.id} · ${sessionStatusLabel(session.status)} (${session.status})`);
         identitySection.append(identity);
       }
       root.append(identitySection);
 
       const devicesSection = document.createElement('section');
+      devicesSection.className = 'student-section';
       appendText(devicesSection, 'h3', '기기');
       appendMode(devicesSection, '기기', devices);
       if (appendResourceState(devicesSection, '기기', devices)) {
@@ -520,6 +535,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       root.append(devicesSection);
 
       const sessionsSection = document.createElement('section');
+      sessionsSection.className = 'student-section';
       appendText(sessionsSection, 'h3', '세션');
       appendMode(sessionsSection, '세션', sessions);
       appendText(sessionsSection, 'p', '세션 조회는 현재 검증된 연결 한 개이며 과거 세션 목록이 아닙니다.');
@@ -540,6 +556,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
     },
     renderDecision({ status, mode, data, error, appId }) {
       const root = document.createElement('section');
+      root.className = 'student-view';
       const appendText = (tag, text) => {
         const node = document.createElement(tag);
         node.textContent = String(text);
@@ -614,6 +631,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
     },
     renderEvents({ status, mode, data, error } = {}) {
       const root = document.createElement('section');
+      root.className = 'student-view';
       const appendText = (parent, tag, text) => {
         const node = document.createElement(tag);
         node.textContent = String(text);
@@ -670,6 +688,9 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       const filters = document.createElement('div');
       const list = document.createElement('ul');
       const detailHost = document.createElement('div');
+      filters.className = 'student-event-filters';
+      list.className = 'student-event-list';
+      detailHost.className = 'student-event-detail';
       root.append(filters, list, detailHost);
 
       const distinctValues = (pick) => [...new Set(events
@@ -849,44 +870,75 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
         if (typeof value !== 'string' || value.length > 500 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value) || secretPattern.test(value)) return fallback;
         return value || fallback;
       };
-      const resourceMode = (section, name, resource) => {
+      const resourceMode = (section, resource) => {
         if (resource?.mode && modeLabels[resource.mode]) {
-          appendText(section, 'p', `${name} 연결 상태: ${modeLabels[resource.mode]}`);
+          appendText(section, 'p', `연결 상태: ${modeLabels[resource.mode]}`);
         }
       };
 
-      appendText(root, 'h3', '알림·도움정보');
-      if (modeLabels[mode]) appendText(root, 'p', `연결 상태: ${modeLabels[mode]}`);
+      const support = document.createElement('section'); support.className = 'student-support';
+      appendText(support, 'h3', '알림·도움정보');
+      if (modeLabels[mode]) appendText(support, 'p', `연결 상태: ${modeLabels[mode]}`);
+      const supportSections = document.createElement('div'); supportSections.className = 'student-support-grid';
 
 
       const notificationsSection = document.createElement('section');
+      notificationsSection.className = 'student-section';
       appendText(notificationsSection, 'h4', '알림');
       if (Array.isArray(notifications) && notifications.length > 0) {
-        const list = document.createElement('ul');
+        const groups = new Map();
         for (const notification of notifications) {
-          const item = document.createElement('li');
-          appendText(item, 'p', `자료(resource): ${safeValue(notification?.resource)}`);
-          appendText(item, 'p', `코드(code): ${safeValue(notification?.code)}`);
-          appendText(item, 'p', `메시지(message): ${safeValue(notification?.message, '메시지 확인 불가')}`);
-          list.append(item);
+          const code = notification?.code, message = notification?.message;
+          const canGroup = typeof code === 'string' && code.length > 0 && typeof message === 'string' && message.length > 0;
+          const key = canGroup ? JSON.stringify([code, message]) : Symbol();
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(notification);
+        }
+        const list = document.createElement('ul'); list.className = 'student-notifications';
+        for (const group of groups.values()) {
+          const item = document.createElement('li'), detail = document.createElement('details');
+          const message = safeValue(group[0]?.message, '메시지 확인 불가');
+          appendText(detail, 'summary', group.length > 1 ? `${message} · ${group.length}개 항목` : message);
+          const resources = document.createElement('ul');
+          for (const notification of group) appendText(resources, 'li', `자료: ${safeValue(notification?.resource)} · 코드: ${safeValue(notification?.code)}`);
+          detail.append(resources); item.append(detail); list.append(item);
         }
         notificationsSection.append(list);
       } else {
         appendText(notificationsSection, 'p', '주의할 알림이 없습니다.');
       }
-      root.append(notificationsSection);
+      supportSections.append(notificationsSection);
 
       const diagnosticsSection = document.createElement('section');
-      appendText(diagnosticsSection, 'h4', '도움정보');
-      resourceMode(diagnosticsSection, '도움정보', diagnostics);
+      diagnosticsSection.className = 'student-section student-diagnostics';
+      const heading = document.createElement('div'); heading.className = 'student-diagnostics-heading';
+      const headingTitle = document.createElement('h4');
+      const details = document.createElement('div'); details.id = 'student-diagnostics-details';
+      const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'btn student-diagnostics-toggle';
+      const label = document.createElement('span'); label.textContent = '도움정보';
+      const arrow = document.createElement('span'); arrow.setAttribute('aria-hidden', 'true');
+      toggle.append(label, arrow);
+      toggle.disabled = diagnostics?.status !== 'ok';
+      arrow.hidden = toggle.disabled;
+      toggle.setAttribute('aria-controls', details.id);
+      const updateToggle = () => {
+        details.hidden = diagnostics?.status === 'ok' && !diagnosticsExpanded;
+        arrow.textContent = diagnosticsExpanded ? '▴' : '▾';
+        toggle.setAttribute('aria-label', diagnosticsExpanded ? '도움정보 접기' : '도움정보 펼치기');
+        toggle.setAttribute('aria-expanded', String(diagnosticsExpanded));
+      };
+      updateToggle();
+      toggle.addEventListener('click', () => {diagnosticsExpanded = !diagnosticsExpanded; updateToggle();});
+      headingTitle.append(toggle); heading.append(headingTitle); diagnosticsSection.append(heading);
+      if (diagnostics?.status !== 'ok') resourceMode(details, diagnostics);
       let safeDiagnostics = null;
       if (diagnostics?.status === 'loading') {
-        appendText(diagnosticsSection, 'p', '도움정보를 불러오는 중');
+        appendText(details, 'p', '도움정보를 불러오는 중');
       } else if (diagnostics?.status === 'error') {
         const message = safeValue(diagnostics.error?.message, '서버가 오류 내용을 제공하지 않았습니다.');
         const timeout = diagnostics.error?.code === 'TIMEOUT' || /시간이 초과|시간 초과|timed out|timeout/i.test(message);
-        appendText(diagnosticsSection, 'p', `${timeout ? '도움정보 조회 시간 초과' : '도움정보를 불러오지 못했습니다'}: ${message}`);
-        appendText(diagnosticsSection, 'p', '다시 시도는 위쪽 「다시 불러오기」 버튼을 직접 누르세요. 자동으로 다시 요청하지 않습니다.');
+        appendText(details, 'p', `${timeout ? '도움정보 조회 시간 초과' : '도움정보를 불러오지 못했습니다'}: ${message}`);
+        appendText(details, 'p', '다시 시도하려면 「도움정보 불러오기」를 누르세요.');
       } else if (diagnostics?.status === 'ok') {
         const source = diagnostics.data && typeof diagnostics.data === 'object' ? diagnostics.data : {};
         const engine = source.engine && typeof source.engine === 'object' ? source.engine : {};
@@ -900,21 +952,37 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
             code: safeValue(engine.code),
           },
         };
-        appendText(diagnosticsSection, 'p', `요청 ID (requestId): ${safeDiagnostics.requestId}`);
-        appendText(diagnosticsSection, 'p', `구성 요소 (component): ${safeDiagnostics.component}`);
-        appendText(diagnosticsSection, 'p', `버전 (version): ${safeDiagnostics.version}`);
-        appendText(diagnosticsSection, 'p', `확인 시각 (checkedAt): ${safeDiagnostics.checkedAt}`);
-        appendText(diagnosticsSection, 'p', `엔진 모드 (engine.mode): ${safeDiagnostics.engine.mode}`);
-        appendText(diagnosticsSection, 'p', `엔진 코드 (engine.code): ${safeDiagnostics.engine.code}`);
-        appendText(diagnosticsSection, 'p', '표시·복사하는 도움정보는 위의 비밀 없는 진단 항목으로 제한됩니다.');
+        const layout = document.createElement('div'); layout.className = 'student-diagnostics-layout';
+        const output = document.createElement('pre'); output.className = 'student-diagnostics-console';
+        output.setAttribute('aria-label', '복사할 도움정보'); output.tabIndex = 0;
+        output.textContent = JSON.stringify(safeDiagnostics, null, 2);
+        const info = document.createElement('div'); info.className = 'student-diagnostics-info';
+        resourceMode(info, diagnostics);
+        appendText(info, 'p', `요청 ID (requestId): ${safeDiagnostics.requestId}`);
+        appendText(info, 'p', `구성 요소 (component): ${safeDiagnostics.component}`);
+        appendText(info, 'p', `버전 (version): ${safeDiagnostics.version}`);
+        appendText(info, 'p', `확인 시각 (checkedAt): ${safeDiagnostics.checkedAt}`);
+        appendText(info, 'p', `엔진 모드 (engine.mode): ${safeDiagnostics.engine.mode}`);
+        appendText(info, 'p', `엔진 코드 (engine.code): ${safeDiagnostics.engine.code}`);
+        layout.append(output, info); details.append(layout);
       } else {
-        appendText(diagnosticsSection, 'p', '도움정보 확인 대기');
+        appendText(details, 'p', '도움정보 확인 대기');
       }
+      const loadButton = document.createElement('button');
+      loadButton.type = 'button'; loadButton.className = 'btn';
+      loadButton.textContent = diagnostics?.status === 'loading' ? '불러오는 중…' : '도움정보 불러오기';
+      loadButton.disabled = diagnostics?.status === 'loading';
       const copyButton = document.createElement('button');
       copyButton.type = 'button';
+      copyButton.className = 'btn';
       copyButton.textContent = '도움정보 복사';
       copyButton.disabled = !safeDiagnostics;
-      const copyStatus = appendText(diagnosticsSection, 'p', '도움 요청에 사용할 안전한 진단 항목만 복사합니다.');
+      const copyStatus = appendText(details, 'p', '도움 요청에 사용할 안전한 진단 항목만 복사합니다.');
+      loadButton.addEventListener('click', () => {
+        const providedButton = document.getElementById('diag-load');
+        if (providedButton && !providedButton.disabled) {diagnosticsExpanded = true; providedButton.click();}
+        else if (!providedButton) copyStatus.textContent = '도움정보 조회를 사용할 수 없습니다.';
+      });
       copyButton.addEventListener('click', async () => {
         if (!safeDiagnostics) return;
         try {
@@ -924,13 +992,16 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
           copyStatus.textContent = '클립보드 복사를 사용할 수 없습니다. 화면에 표시된 안전한 항목만 직접 복사하세요.';
         }
       });
-      diagnosticsSection.append(copyButton);
-      root.append(diagnosticsSection);
+      const actions = document.createElement('div'); actions.className = 'row student-diagnostics-actions';
+      actions.append(loadButton, copyButton);
+      diagnosticsSection.append(details, actions);
+      supportSections.append(diagnosticsSection); support.append(supportSections); root.append(support);
 
       return root;
     },
     renderVulnerabilities({ status, mode, data, error } = {}) {
       const root = document.createElement('section');
+      root.className = 'student-view';
       const appendText = (parent, tag, text) => {
         const node = document.createElement(tag);
         node.textContent = String(text);
@@ -1056,6 +1127,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
     },
     renderAiConnection({ status, mode, data, error, checkedAt, explanationAccepted } = {}) {
       const root = document.createElement('section');
+      root.className = 'student-view';
       const appendText = (tag, text) => {
         const node = document.createElement(tag);
         node.textContent = String(text);
@@ -1148,6 +1220,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
     },
     renderExplanation({ event, explanation, checkedAt } = {}) {
       const root = document.createElement('section');
+      root.className = 'student-view';
       const appendText = (parent, tag, text) => {
         const node = document.createElement(tag);
         node.textContent = String(text);
@@ -1335,6 +1408,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
     },
     renderAction({ status, event, actionId, target, receipt, observation, message, confirmationExpiresAt, error } = {}) {
       const root = document.createElement('section');
+      root.className = 'student-view';
       const appendText = (parent, tag, text) => {
         const node = document.createElement(tag);
         node.textContent = String(text);
