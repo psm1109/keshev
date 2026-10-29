@@ -69,7 +69,7 @@ function createPcDashboard(api, onChange) {
   const finite = n => typeof n === 'number' && Number.isFinite(n) && n >= 0;
   const percent = n => finite(n) && n <= 100;
   const time = value => new Date(value).toLocaleString('ko-KR', {timeZone: 'Asia/Seoul', hour12: false});
-  const gb = value => `${(value / 1024 ** 3).toFixed(1)} GB`;
+  const gb = value => `${(value / 1024 ** 3).toFixed(1)} GiB`;
   const reasons = {unsupported: '운영체제 미지원', permission_denied: '읽기 권한 부족', timeout: '조회 시간 초과', cancelled: '조회 취소', query_failed: '조회 실패', invalid_response: '응답 값 확인 불가', invalid_sample: '측정 구간 확인 불가', no_active_interface: '활성 네트워크 어댑터 없음'};
   const make = (tag, text, cls) => {
     const node = document.createElement(tag);
@@ -111,7 +111,7 @@ function createPcDashboard(api, onChange) {
         }
         if (key === 'disk' && finite(m.freeBytes) && finite(m.totalBytes) && m.totalBytes > 0 && m.freeBytes <= m.totalBytes) {
           value = m.freeBytes / m.totalBytes * 100; text = `${gb(m.freeBytes)} · ${value.toFixed(1)}% 여유`;
-          detail = `${gb(m.totalBytes - m.freeBytes)} 사용 / 전체 ${gb(m.totalBytes)}`;
+          detail = `${gb(m.totalBytes - m.freeBytes)} 사용 / 전체 ${gb(m.totalBytes)}\n${gb(m.freeBytes)} 여유`;
         }
       }
       let reason = reasons[m?.reason] || '응답 값 확인 불가';
@@ -285,7 +285,7 @@ function createPcDashboard(api, onChange) {
         const m = row.metrics, value = metric => metric.value === null ? `확인 불가 · ${metric.reason}` : `${metric.value.toFixed(1)}%`;
         const rows = [
           `CPU: ${value(m.cpu)}`, `메모리: ${value(m.memory)}${m.memory.detail ? ` · ${m.memory.detail}` : ''}`,
-          `디스크 사용: ${m.disk.value === null ? `확인 불가 · ${m.disk.reason}` : `${(100 - m.disk.value).toFixed(1)}% · ${m.disk.detail}`}`,
+          `디스크 사용: ${m.disk.value === null ? `확인 불가 · ${m.disk.reason}` : `${(100 - m.disk.value).toFixed(1)}% · ${m.disk.detail.replace('\n', ' · ')}`}`,
           `네트워크: 업로드 ${finite(m.network.upload) ? `${m.network.upload.toFixed(2)} Mbps` : '확인 불가'} · 다운로드 ${finite(m.network.value) ? `${m.network.value.toFixed(2)} Mbps` : '확인 불가'}${m.network.value === null || m.network.upload === null ? ` · ${m.network.reason}` : ''}`,
         ];
         const values = make('ul', undefined, 'pc-history-values');
@@ -338,18 +338,6 @@ function createPcDashboard(api, onChange) {
     if (autoRefresh && !document.hidden) void read();
     else notify();
   });
-  function serviceSection() {
-    const section = make('section', undefined, 'card pc-service-section'); section.id = 'pc-service-section';
-    section.append(make('h3', '서비스 연결·사용량·비용'));
-    const list = make('div', undefined, 'pc-service-grid');
-    for (const name of ['GitHub', 'Vercel', 'Railway', 'Supabase']) {
-      const item = make('article', undefined, 'pc-service-item'); item.id = `pc-service-${name.toLowerCase()}`;
-      item.append(make('h4', `${name} · 연결 전 · 확인 불가`));
-      item.append(make('p', '계정 보안 · 사용량 · 월 비용 · 취약점: 확인 불가', 'muted'));
-      list.append(item);
-    }
-    section.append(list); return section;
-  }
   function evidenceSection(stale) {
     const section = make('section', undefined, 'card pc-evidence-section'); section.id = 'pc-evidence-section';
     section.append(make('h3', '이상 징후 근거'));
@@ -404,7 +392,7 @@ function createPcDashboard(api, onChange) {
     const autoStatus = autoRefresh ? document.hidden || pageHidden ? '화면 숨김 · 자동 조회 일시 중지' : '10초마다 자동 조회 중'
       : '마지막 조회 결과이며 실시간 감시는 아닙니다.';
     const status = make('p', current
-      ? `${phase === 'error' ? `갱신 실패 · 마지막 측정값 유지. ${lastError} · ` : ''}PC 실측 · 마지막 측정: ${time(current.measuredAt)} (한국 시간) · ${stale ? '오래된 기록 · ' : ''}${autoStatus}`
+      ? `${phase === 'error' ? `갱신 실패 · 마지막 측정값 유지. ${lastError} · ` : ''}PC 실측 · 조회 완료 시각: ${time(current.measuredAt)} (한국 시간) · 항목별 측정 시점 다름 · ${stale ? '오래된 기록 · ' : ''}${autoStatus}`
       : phase === 'error' ? `조회 실패 · 현재 값 확인 불가. ${lastError} ${autoRefresh ? autoStatus : ''}`
       : '첫 측정값을 불러오고 있습니다.', 'pc-measurement-status');
     status.title = status.textContent;
@@ -470,7 +458,7 @@ function createPcDashboard(api, onChange) {
     }
     dashboard.append(cards);
     dashboard.append(indicatorsSection());
-    root.append(serviceSection(), evidenceSection(stale));
+    root.append(evidenceSection(stale));
     return root;
   };
 }

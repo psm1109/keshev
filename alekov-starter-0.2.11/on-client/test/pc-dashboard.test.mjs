@@ -101,6 +101,18 @@ test('refresh retains values and graph nodes, then changes the existing meter in
   assert.equal(ui.indicators().hidden, false);
 });
 
+test('disk card shows remaining capacity and does not invent a value when unavailable', async () => {
+  const ui = setup(); await flush();
+  const gib = 1024 ** 3;
+  ui.finish(0, 20, true, 50, undefined, {disk: {state: 'ok', freeBytes: 35 * gib, totalBytes: 100 * gib}}); await flush();
+  assert.match(ui.card('disk').textContent, /65\.0 GiB 사용 \/ 전체 100\.0 GiB\n35\.0 GiB 여유/);
+  assert.match(ui.status().textContent, /조회 완료 시각:.*항목별 측정 시점 다름/);
+  const pending = ui.button().fire('click');
+  ui.advance(1000); ui.finish(1, 20, true, 50, undefined, {disk: {state: 'unavailable', reason: 'permission_denied'}}); await pending;
+  assert.match(ui.card('disk').textContent, /확인 불가/);
+  assert.doesNotMatch(ui.card('disk').textContent, /35\.0 GiB 여유/);
+});
+
 test('PC configuration, firewall and Windows counts distinguish partial and unavailable results', async () => {
   const ui = setup(); await flush();
   const firewall = {state: 'ok', profiles: [{name: 'Public', enabled: true}, {name: 'Domain', enabled: true}, {name: 'Private', enabled: false}]};
@@ -330,12 +342,9 @@ test('loading, success, overload, missing data and failures retain the same card
   pending = ui.button().fire('click'); ui.finish(4, 0, false); await pending; checkFrames();
 });
 
-test('service placeholders and PC evidence distinguish actual, stale, failed and unavailable observations', async () => {
+test('PC evidence distinguishes actual, stale, failed and unavailable observations', async () => {
   const ui = setup(); await flush();
   const find = id => all(ui.root).find(node => node.id === id);
-  assert.equal(all(find('pc-service-section')).filter(node => node.localName === 'article').length, 4);
-  assert.match(find('pc-service-section').textContent, /GitHub · 연결 전 · 확인 불가/);
-  assert.doesNotMatch(find('pc-service-section').textContent, /0원|안전|연결됨/);
   assert.match(find('pc-evidence-section').textContent, /조회 전 · 확인 불가/);
   const firewall = {state: 'ok', profiles: [{name: 'Domain', enabled: true}, {name: 'Private', enabled: false}, {name: 'Public', enabled: true}]};
   ui.finish(0, 90, true, 88, undefined, {disk: {state: 'ok', freeBytes: 5, totalBytes: 100}, firewall}); await flush();
