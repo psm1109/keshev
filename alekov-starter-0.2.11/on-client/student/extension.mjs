@@ -10,6 +10,7 @@ function createPcDashboard(api, onChange) {
   const overloadCounts = {cpu: 0, memory: 0};
   let overloadMeasuredAt = null;
   let phase = 'idle', current = null, expiryTimer, mountedRoot, renderView;
+  let sdpStatus = {state: 'loading'};
   let lastError = '';
   let autoRefresh = false, autoTimer = null, pageHidden = false;
   let lastReadStartedAt = null;
@@ -138,8 +139,9 @@ function createPcDashboard(api, onChange) {
       : `네트워크 연결 확인 불가 · ${reasons[connection?.reason] || '응답 값 확인 불가'}`;
     metrics.firewall = f?.state === 'ok' && Array.isArray(f.profiles) && f.profiles.length === 3 && ['Domain', 'Private', 'Public'].every(name => f.profiles.filter(p => p.name === name && typeof p.enabled === 'boolean').length === 1)
       ? {profiles: ['Domain', 'Private', 'Public'].map(name => `${name} ${f.profiles.find(p => p.name === name).enabled ? '켜짐' : '꺼짐'}`), detail: ''} : unavailable(f);
+    const logs = Array.isArray(e?.logs) && e.logs.length === 2 && new Set(e.logs).size === 2 && ['System', 'Application'].every(log => e.logs.includes(log));
     metrics.events = e?.state === 'ok' && validCount(e.warningCount) && validCount(e.errorCount) && e.warningCount + e.errorCount <= 5000 && e.sampleLimit === 5000 && typeof e.truncated === 'boolean'
-      ? {text: `경고 ${e.warningCount}건 · 오류 ${e.errorCount}건`, detail: `최근 24시간${e.truncated ? ' · 일부 집계' : ''}`}
+      ? {text: `경고 ${e.warningCount}건 · 오류 ${e.errorCount}건`, detail: `${logs ? 'System · Application' : '로그별 범위 확인 불가'}\n최근 24시간${e.truncated ? ' · 최근 5,000건 일부 집계' : ''}`}
       : unavailable(e);
     return {measuredAt: data.measuredAt, metrics};
   }
@@ -154,6 +156,18 @@ function createPcDashboard(api, onChange) {
       overloadCounts[key] = count;
     }
     overloadMeasuredAt = measuredAt;
+  }
+  async function readSdp() {
+    if (sdpStatus.state === 'loading' && sdpStatus.started) return;
+    sdpStatus = {state: 'loading', started: true}; notify();
+    try {
+      const result = await api?.get('/api/sdp/status');
+      const data = result?.ok === true ? result.data : null;
+      sdpStatus = data?.state === 'connected' ? {state: 'connected'}
+        : data?.state === 'disconnected' ? {state: 'disconnected'}
+        : {state: 'unavailable', reason: ({adapter_unconfigured: '연결 어댑터 미설정', session_unverified: '활성 세션 미확인', timeout: '조회 시간 초과', query_failed: '세션 조회 실패'})[data?.reason] || '응답 또는 서버 연결 확인 불가'};
+    } catch {sdpStatus = {state: 'unavailable', reason: '서버 연결 확인 불가'};}
+    notify();
   }
   async function read() {
     if (pageHidden || phase === 'loading') return;
@@ -328,7 +342,7 @@ function createPcDashboard(api, onChange) {
     return svg;
   }
   // 화면 초기화 후 최초 한 번 조회하며, 이후 반복은 체크박스로 켰을 때만 한다.
-  queueMicrotask(() => { if (phase === 'idle') void read(); });
+  queueMicrotask(() => { if (phase === 'idle') void read(); void readSdp(); });
   document.addEventListener('visibilitychange', () => {
     stopAutoRefresh();
     if (!document.hidden && !pageHidden && (autoRefresh || phase === 'idle')) void read();
@@ -377,6 +391,15 @@ function createPcDashboard(api, onChange) {
     mountedRoot = root;
     const dashboard = make('section', undefined, 'card'); dashboard.id = 'pc-main-dashboard'; root.append(dashboard);
     dashboard.append(make('h3', '내 PC 상태 대시보드'));
+    const sdpText = sdpStatus.state === 'connected' ? 'SDP 연결됨 · 마지막 세션 확인'
+      : sdpStatus.state === 'disconnected' ? 'SDP 미연결'
+      : sdpStatus.state === 'loading' ? 'SDP 연결 상태 확인 중'
+      : `SDP 연결 상태 확인 불가 · ${sdpStatus.reason}`;
+    const sdp = make('div', undefined, 'row pc-sdp-status');
+    sdp.append(make('span', sdpText, 'muted'));
+    const retrySdp = make('button', 'SDP 다시 확인', 'btn'); retrySdp.type = 'button';
+    retrySdp.disabled = sdpStatus.state === 'loading'; retrySdp.addEventListener('click', readSdp);
+    sdp.append(retrySdp); dashboard.append(sdp);
     dashboard.append(make('p', '서버를 다른 기기에서 실행하면 사용자 PC의 실측값이 아닙니다. 네트워크는 활성 어댑터의 송수신 속도이며 회선 최대 속도가 아닙니다.', 'muted'));
     const loading = phase === 'idle' || phase === 'loading';
     const controls = make('div', undefined, 'row');

@@ -51,6 +51,13 @@ test('Windows network connection is independent of traffic and fails closed', ()
   assert.deepEqual(normalizeWindowsStatus({networkConnection: {state: 'ok', connected: 'false'}}).networkConnection, {state: 'unavailable', reason: 'invalid_response'});
 });
 
+test('Windows event log scope is preserved only when both logs are proven', () => {
+  const events = {state: 'ok', logs: ['System', 'Application'], warningCount: 1, errorCount: 2, truncated: true, sampleLimit: 5000, since: '2026-10-28T00:00:00.000Z'};
+  assert.deepEqual(normalizeWindowsStatus({events}).events.logs, ['System', 'Application']);
+  assert.equal(normalizeWindowsStatus({events: {...events, logs: ['System']}}).events.logs, null);
+  assert.equal(normalizeWindowsStatus({events: {...events, logs: undefined}}).events.logs, null);
+});
+
 test('PC status adds traffic without replacing the provided network configuration counts', async () => {
   const traffic = {state: 'ok', source: 'adapter-counters', uploadMbps: 1, downloadMbps: 2, sampleMs: 1000};
   const reader = createPcStatusReader({platform: 'linux', system: {cpus: () => [], totalmem: () => 100, freemem: () => 30,

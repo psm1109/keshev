@@ -42,7 +42,7 @@ try {
   }
   $truncated = $events.Count -gt 5000
   $sample = @($events | Sort-Object -Property TimeCreated -Descending | Select-Object -First 5000)
-  $result.events = @{ state = 'ok'; warningCount = @($sample | Where-Object { $_.Level -eq 3 }).Count; errorCount = @($sample | Where-Object { $_.Level -eq 2 }).Count; truncated = $truncated; sampleLimit = 5000; since = $since.ToUniversalTime().ToString('o') }
+  $result.events = @{ state = 'ok'; logs = @('System','Application'); warningCount = @($sample | Where-Object { $_.Level -eq 3 }).Count; errorCount = @($sample | Where-Object { $_.Level -eq 2 }).Count; truncated = $truncated; sampleLimit = 5000; since = $since.ToUniversalTime().ToString('o') }
 } catch {
   $result.events = @{ state = 'unavailable'; reason = (Read-FailureReason $_) }
 }
@@ -79,7 +79,8 @@ export function normalizeWindowsStatus(raw) {
   const e = raw?.events;
   if (e?.state === 'unavailable') result.events = missing(e.reason === 'permission_denied' ? 'permission_denied' : 'query_failed');
   if (e?.state === 'ok' && count(e.warningCount) && count(e.errorCount) && e.warningCount + e.errorCount <= 5000 && e.sampleLimit === 5000 && typeof e.truncated === 'boolean' && typeof e.since === 'string' && Number.isFinite(Date.parse(e.since))) {
-    result.events = {state: 'ok', warningCount: e.warningCount, errorCount: e.errorCount, truncated: e.truncated, sampleLimit: 5000, since: e.since};
+    const logs = Array.isArray(e.logs) && e.logs.length === 2 && new Set(e.logs).size === 2 && ['System', 'Application'].every(log => e.logs.includes(log)) ? ['System', 'Application'] : null;
+    result.events = {state: 'ok', warningCount: e.warningCount, errorCount: e.errorCount, truncated: e.truncated, sampleLimit: 5000, since: e.since, logs};
   }
   return result;
 }

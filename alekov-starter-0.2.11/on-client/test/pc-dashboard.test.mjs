@@ -8,7 +8,7 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 const all = node => [node, ...node.childNodes.flatMap(all)];
 
 // Small DOM fixture with node identity, reflected attributes and real parent/child moves.
-function setup() {
+function setup(sdpData = {state: 'unavailable', reason: 'adapter_unconfigured'}) {
   let now = Date.now(), nextTimer = 0;
   const timers = new Map(), requests = [];
   const document = {hidden: false, activeElement: null, addEventListener() {}};
@@ -60,7 +60,7 @@ function setup() {
     setTimeout: (fn, delay) => {const id = ++nextTimer; timers.set(id, {fn, delay}); return id;}, clearTimeout: id => timers.delete(id)});
   vm.runInContext(source, context);
   let root;
-  const render = context.createPcDashboard({get: () => new Promise(resolve => requests.push(resolve))}, () => {
+  const render = context.createPcDashboard({get: path => path === '/api/sdp/status' ? Promise.resolve({ok: true, data: sdpData}) : new Promise(resolve => requests.push(resolve))}, () => {
     const next = render(); if (root) root.replaceWith(next); else document.body.append(next); root = next;
   });
   root = render(); document.body.append(root);
@@ -68,7 +68,7 @@ function setup() {
   return {get root() {return root;}, requests, timers, document,
     card: key => find(node => node.dataset?.metric === key),
     graph: key => {const card = find(node => node.dataset?.indicator === key); return all(card).find(node => node.localName === 'svg');},
-    button: () => find(node => node.localName === 'button'),
+    button: () => find(node => node.className?.includes('pc-refresh')),
     checkbox: () => find(node => node.dataset?.pcAutoRefresh !== undefined),
     status: () => find(node => node.getAttribute?.('role') === 'status'),
     indicators: () => find(node => node.id === 'pc-indicators'),
@@ -126,16 +126,33 @@ test('network connection reports Windows status independently from counts and tr
   assert.match(ui.card('network').textContent, /네트워크 연결 확인 불가 · 읽기 권한 부족/);
 });
 
+test('SDP status is independent of PC measurement success', async () => {
+  const connected = setup({state: 'connected'}); await flush();
+  assert.match(connected.root.textContent, /SDP 연결됨/);
+  connected.finish(0, 0, false); await flush();
+  assert.match(connected.root.textContent, /SDP 연결됨/);
+  const unavailable = setup(); await flush(); unavailable.finish(0); await flush();
+  assert.match(unavailable.root.textContent, /SDP 연결 상태 확인 불가 · 연결 어댑터 미설정/);
+  assert.doesNotMatch(unavailable.root.textContent, /SDP 미연결/);
+});
+
+test('Windows event counts do not assume missing log scope', async () => {
+  const ui = setup(); await flush();
+  ui.finish(0, 20, true, 50, undefined, {events: {state: 'ok', warningCount: 0, errorCount: 0, sampleLimit: 5000, truncated: false}}); await flush();
+  assert.match(ui.card('events').textContent, /로그별 범위 확인 불가/);
+});
+
 test('PC configuration, firewall and Windows counts distinguish partial and unavailable results', async () => {
   const ui = setup(); await flush();
   const firewall = {state: 'ok', profiles: [{name: 'Public', enabled: true}, {name: 'Domain', enabled: true}, {name: 'Private', enabled: false}]};
-  ui.finish(0, 20, true, 50, undefined, {firewall, events: {state: 'ok', warningCount: 30, errorCount: 10, sampleLimit: 5000, truncated: true}}); await flush();
+  ui.finish(0, 20, true, 50, undefined, {firewall, events: {state: 'ok', logs: ['System', 'Application'], warningCount: 30, errorCount: 10, sampleLimit: 5000, truncated: true}}); await flush();
   assert.equal(ui.card('configuration'), undefined);
   assert.match(ui.card('network').textContent, /업로드.*다운로드.*인터페이스 1개.*IPv4 구성 1개/);
   assert.match(ui.card('firewall').textContent, /Domain 켜짐.*Private 꺼짐.*Public 켜짐/);
   const firewallValues = all(ui.card('firewall')).find(node => node.className === 'pc-extra-value pc-firewall-values');
   assert.deepEqual(firewallValues.childNodes.map(node => node.textContent), ['Domain 켜짐', 'Private 꺼짐', 'Public 켜짐']);
-  assert.match(ui.card('events').textContent, /경고 30건.*오류 10건.*일부 집계/);
+  assert.match(ui.card('events').textContent, /경고 30건.*오류 10건.*System · Application/s);
+  assert.match(ui.card('events').textContent, /최근 5,000건 일부 집계/);
   assert.match(ui.card('events').textContent, /침해나 공격 탐지 결과가 아닙니다/);
   assert.match(ui.status().textContent, /PC 실측/);
   const pending = ui.button().fire('click'); ui.advance(1000);

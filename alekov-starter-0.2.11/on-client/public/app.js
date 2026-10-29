@@ -40,7 +40,7 @@ const KIND_LABELS ={ access: '접속 기록', xdr: 'XDR 사건' };
 
 // 학생 확장은 아래 정확한 문자열만 GET 한다. /api/pc/status 는 제공 카드와 같은 읽기 전용 실측이다.
 const STUDENT_PC_PATH = '/api/pc/status';
-const STUDENT_GET_PATHS = ['/api/me', '/api/apps', '/api/events', '/api/devices', '/api/sessions', '/api/vulnerabilities', STUDENT_PC_PATH];
+const STUDENT_GET_PATHS = ['/api/me', '/api/apps', '/api/events', '/api/devices', '/api/sessions', '/api/vulnerabilities', '/api/sdp/status', STUDENT_PC_PATH];
 
 const RESOURCE_LABELS = {
   me: '로그인 정보',
