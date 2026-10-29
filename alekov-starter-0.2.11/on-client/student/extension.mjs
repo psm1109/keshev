@@ -132,6 +132,10 @@ function createPcDashboard(api, onChange) {
     const unavailable = m => ({text: '확인 불가', detail: reasons[m?.reason] || '응답 값 확인 불가'});
     metrics.configuration = n?.state === 'ok' && validCount(n.interfaceCount) && validCount(n.ipv4Count)
       ? {text: `인터페이스 ${n.interfaceCount}개`, detail: `IPv4 구성 ${n.ipv4Count}개`} : unavailable(n);
+    const connection = n?.connection;
+    metrics.networkConnection = connection?.state === 'ok' && typeof connection.connected === 'boolean'
+      ? `네트워크 ${connection.connected ? '연결됨' : '미연결'}`
+      : `네트워크 연결 확인 불가 · ${reasons[connection?.reason] || '응답 값 확인 불가'}`;
     metrics.firewall = f?.state === 'ok' && Array.isArray(f.profiles) && f.profiles.length === 3 && ['Domain', 'Private', 'Public'].every(name => f.profiles.filter(p => p.name === name && typeof p.enabled === 'boolean').length === 1)
       ? {profiles: ['Domain', 'Private', 'Public'].map(name => `${name} ${f.profiles.find(p => p.name === name).enabled ? '켜짐' : '꺼짐'}`), detail: ''} : unavailable(f);
     metrics.events = e?.state === 'ok' && validCount(e.warningCount) && validCount(e.errorCount) && e.warningCount + e.errorCount <= 5000 && e.sampleLimit === 5000 && typeof e.truncated === 'boolean'
@@ -406,7 +410,8 @@ function createPcDashboard(api, onChange) {
         if (key === 'network') {
           card.append(networkReadings(usable ? {network: metric.value, upload: metric.upload} : null, {loading: !usable && loading}));
           const config = current?.metrics.configuration;
-          const configuration = make('p', config ? config.text === '확인 불가' ? `구성 확인 불가 · ${config.detail}` : `${config.text} · ${config.detail}` : loading ? '구성 조회 중' : '구성 확인 불가', 'muted pc-network-configuration');
+          const configurationText = config ? config.text === '확인 불가' ? `구성 확인 불가 · ${config.detail}` : `${config.text} · ${config.detail}` : loading ? '구성 조회 중' : '구성 확인 불가';
+          const configuration = make('p', `${configurationText}\n${current ? current.metrics.networkConnection : loading ? '연결 상태 조회 중' : '연결 상태 확인 불가'}`, 'muted pc-network-configuration');
           configuration.title = configuration.textContent; card.append(configuration);
           const note = make('p', usable && (metric.value === null || metric.upload === null) ? metric.reason : '활성 어댑터 송수신량 · 약 1초 평균', 'muted pc-metric-notice');
           note.title = note.textContent; card.append(note);

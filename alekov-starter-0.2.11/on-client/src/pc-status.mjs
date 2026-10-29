@@ -20,6 +20,13 @@ function Read-FailureReason($failure) {
   return 'query_failed'
 }
 try {
+  $type = [type]::GetTypeFromCLSID([guid]'DCB00C01-570F-4A9B-8D69-199FDBA5723B')
+  $manager = [Activator]::CreateInstance($type)
+  $connected = $manager.IsConnected
+  if ($connected -isnot [bool]) { throw 'Invalid network connection status' }
+  $result.networkConnection = @{ state = 'ok'; connected = $connected }
+} catch { $result.networkConnection = @{ state = 'unavailable'; reason = (Read-FailureReason $_) } }
+try {
   $profiles = @(Get-NetFirewallProfile -ErrorAction Stop | ForEach-Object {
     $enabled = switch ([string]$_.Enabled) { 'True' { $true }; 'False' { $false }; default { $null } }
     @{ name = [string]$_.Name; enabled = $enabled }
@@ -60,7 +67,10 @@ export function cpuUsage(before, after) {
   return {state: 'ok', usagePercent: Math.round(1000 * (1 - (b.idle - a.idle) / (b.total - a.total))) / 10};
 }
 export function normalizeWindowsStatus(raw) {
-  const result = {firewall: missing('invalid_response'), events: missing('invalid_response')};
+  const result = {firewall: missing('invalid_response'), events: missing('invalid_response'), networkConnection: missing('invalid_response')};
+  const connection = raw?.networkConnection;
+  if (connection?.state === 'ok' && typeof connection.connected === 'boolean') result.networkConnection = {state: 'ok', connected: connection.connected};
+  if (connection?.state === 'unavailable') result.networkConnection = missing(connection.reason === 'permission_denied' ? 'permission_denied' : 'query_failed');
   if (raw?.firewall?.state === 'unavailable') result.firewall = missing(raw.firewall.reason === 'permission_denied' ? 'permission_denied' : 'query_failed');
   const profiles = raw?.firewall?.profiles;
   if (raw?.firewall?.state === 'ok' && Array.isArray(profiles) && profiles.length === 3 && ['Domain', 'Private', 'Public'].every(name => profiles.some(p => p.name === name && typeof p.enabled === 'boolean'))) {
@@ -100,14 +110,15 @@ export function createPcStatusReader({system = os, disk = statfs, run = execute,
       catch {metrics.disk = missing('query_failed');}
     })();
     const windows = (async () => {
-      if (platform !== 'win32') {metrics.firewall = missing('unsupported'); metrics.events = missing('unsupported'); return;}
+      if (platform !== 'win32') {metrics.firewall = missing('unsupported'); metrics.events = missing('unsupported'); metrics.network.connection = missing('unsupported'); return;}
       try {
         const exe = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
         const {stdout} = await run(exe, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', WINDOWS_READ], {windowsHide: true, encoding: 'utf8', timeout: 8000, maxBuffer: 128 * 1024, signal});
-        Object.assign(metrics, normalizeWindowsStatus(JSON.parse(stdout.trim())));
+        const {networkConnection, ...status} = normalizeWindowsStatus(JSON.parse(stdout.trim()));
+        Object.assign(metrics, status); metrics.network.connection = networkConnection;
       } catch (error) {
         const reason = signal?.aborted ? 'cancelled' : error?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' ? 'query_failed' : error?.killed || error?.code === 'ETIMEDOUT' ? 'timeout' : 'query_failed';
-        metrics.firewall = missing(reason); metrics.events = missing(reason);
+        metrics.firewall = missing(reason); metrics.events = missing(reason); metrics.network.connection = missing(reason);
       }
     })();
     await Promise.all([cpu, drive, windows, traffic]); signal?.throwIfAborted();

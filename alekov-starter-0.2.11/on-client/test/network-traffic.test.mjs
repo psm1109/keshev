@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {trafficRates, createNetworkTrafficReader, WINDOWS_TRAFFIC_READ} from '../src/network-traffic.mjs';
-import {createPcStatusReader} from '../src/pc-status.mjs';
+import {createPcStatusReader, normalizeWindowsStatus} from '../src/pc-status.mjs';
 
 test('byte deltas use the actual sample duration and convert both directions to Mbps', () => {
   const result = trafficRates({state: 'ok', sentBytes: 250000, receivedBytes: 1250000, sampleMs: 2000});
@@ -41,6 +41,14 @@ test('errors, malformed responses and cancellations stay unavailable', async () 
 test('unsupported platforms do not run Windows commands or fabricate zero traffic', async () => {
   const result = await createNetworkTrafficReader({platform: 'linux', run: () => assert.fail('must not run')})();
   assert.deepEqual(result, {state: 'unavailable', reason: 'unsupported'});
+});
+
+test('Windows network connection is independent of traffic and fails closed', () => {
+  for (const connected of [true, false]) {
+    assert.deepEqual(normalizeWindowsStatus({networkConnection: {state: 'ok', connected}}).networkConnection, {state: 'ok', connected});
+  }
+  assert.deepEqual(normalizeWindowsStatus({networkConnection: {state: 'unavailable', reason: 'permission_denied'}}).networkConnection, {state: 'unavailable', reason: 'permission_denied'});
+  assert.deepEqual(normalizeWindowsStatus({networkConnection: {state: 'ok', connected: 'false'}}).networkConnection, {state: 'unavailable', reason: 'invalid_response'});
 });
 
 test('PC status adds traffic without replacing the provided network configuration counts', async () => {

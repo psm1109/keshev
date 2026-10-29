@@ -113,6 +113,19 @@ test('disk card shows remaining capacity and does not invent a value when unavai
   assert.doesNotMatch(ui.card('disk').textContent, /35\.0 GiB 여유/);
 });
 
+test('network connection reports Windows status independently from counts and traffic', async () => {
+  const ui = setup(); await flush();
+  const network = connection => ({state: 'ok', interfaceCount: 1, ipv4Count: 1, connection, traffic: {state: 'ok', source: 'adapter-counters', uploadMbps: 0, downloadMbps: 0, sampleMs: 1000}});
+  ui.finish(0, 20, true, 50, undefined, {network: network({state: 'ok', connected: true})}); await flush();
+  assert.match(ui.card('network').textContent, /네트워크 연결됨/);
+  let pending = ui.button().fire('click'); ui.advance(1000);
+  ui.finish(1, 20, true, 50, undefined, {network: network({state: 'ok', connected: false})}); await pending;
+  assert.match(ui.card('network').textContent, /네트워크 미연결/);
+  pending = ui.button().fire('click'); ui.advance(1000);
+  ui.finish(2, 20, true, 50, undefined, {network: network({state: 'unavailable', reason: 'permission_denied'})}); await pending;
+  assert.match(ui.card('network').textContent, /네트워크 연결 확인 불가 · 읽기 권한 부족/);
+});
+
 test('PC configuration, firewall and Windows counts distinguish partial and unavailable results', async () => {
   const ui = setup(); await flush();
   const firewall = {state: 'ok', profiles: [{name: 'Public', enabled: true}, {name: 'Domain', enabled: true}, {name: 'Private', enabled: false}]};
