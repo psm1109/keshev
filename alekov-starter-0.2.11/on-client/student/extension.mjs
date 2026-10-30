@@ -23,6 +23,11 @@ function createPcDashboard(api, onChange) {
       '[data-student-dashboard] .pc-combined-times > :only-child { margin: auto; }',
       '[data-student-dashboard] .pc-dashboard-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }',
       '[data-student-dashboard] .pc-dashboard-heading h3, [data-student-dashboard] .pc-dashboard-heading .pc-sdp-status { margin: 0; }',
+      '#view-protection > .pc-core-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }',
+      '#view-protection > .pc-core-nav a { display: block; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); text-decoration: none; }',
+      '#view-protection > .pc-core-nav a:hover { border-color: var(--accent); }',
+      '@media (max-width: 700px) { #view-protection > .pc-core-nav { grid-template-columns: minmax(0, 1fr); } }',
+      '#view-protection > .student-provided-divider { border: 0; border-top: 1px solid var(--border); margin: 4px 0 16px; }',
       '#view-protection .student-identity-stack { grid-template-columns: minmax(0, 1fr); }'
     ];
     try {
@@ -102,6 +107,24 @@ function createPcDashboard(api, onChange) {
   const time = value => new Date(value).toLocaleString('ko-KR', {timeZone: 'Asia/Seoul', hour12: false});
   const gb = value => `${(value / 1024 ** 3).toFixed(1)} GiB`;
   const reasons = {unsupported: '운영체제 미지원', permission_denied: '읽기 권한 부족', timeout: '조회 시간 초과', cancelled: '조회 취소', query_failed: '조회 실패', invalid_response: '응답 값 확인 불가', invalid_sample: '측정 구간 확인 불가', no_active_interface: '활성 네트워크 어댑터 없음'};
+  const nextAction = reason => reason === reasons.permission_denied ? '권한을 바꾸지 말고 담당자에게 확인하세요.'
+    : reason === reasons.unsupported ? '지원되는 Windows PC에서 확인하세요.'
+      : '다시 조회하고 계속되면 앱 서버 상태를 확인하세요.';
+  const pcFailureText = code => {
+    const known = {
+      TIMEOUT: ['조회 시간 초과', '앱 서버 상태를 확인하고 다시 조회하세요.'],
+      REQUEST_TIMEOUT: ['조회 시간 초과', '앱 서버 상태를 확인하고 다시 조회하세요.'],
+      NETWORK_ERROR: ['앱 서버 연결 실패', '앱 서버를 실행한 뒤 다시 조회하세요.'],
+      INVALID_RESPONSE: ['응답 형식 또는 측정 시각 확인 불가', '앱 서버 상태를 확인하고 다시 조회하세요.'],
+      ORIGIN_REJECTED: ['조회 주소 확인 불가', '앱의 로컬 주소로 다시 접속하세요.'],
+      HOST_REJECTED: ['조회 주소 확인 불가', '앱의 로컬 주소로 다시 접속하세요.'],
+      CANCELLED: ['조회 취소', '다시 조회하세요.'],
+      REQUEST_CANCELLED: ['조회 취소', '다시 조회하세요.']
+    };
+    const [reason, action] = Object.hasOwn(known, code) ? known[code]
+      : ['서버 응답 또는 연결 확인 불가', '앱 서버 상태를 확인하고 다시 조회하세요.'];
+    return `원인: ${reason} · 다음 행동: ${action}`;
+  };
   const make = (tag, text, cls) => {
     const node = document.createElement(tag);
     if (text !== undefined) node.textContent = text;
@@ -162,7 +185,7 @@ function createPcDashboard(api, onChange) {
     phase = 'loading'; notify();
     try {
       const result = await api?.get('/api/pc/status');
-      if (result?.ok !== true) throw Error(result?.error?.code === 'TIMEOUT' ? 'TIMEOUT' : 'REQUEST_FAILED');
+      if (result?.ok !== true) throw Error(typeof result?.error?.code === 'string' ? result.error.code : 'REQUEST_FAILED');
       current = normalize(result.data);
       trackOverload(current);
       phase = 'ok';
@@ -178,7 +201,7 @@ function createPcDashboard(api, onChange) {
       overloadMeasuredAt = null;
       const at = new Date().toISOString();
       history.push({at, cpu: null, memory: null});
-      lastError = error?.message === 'TIMEOUT' ? '시간 초과: 서버가 실행 중인지 확인하고 다시 조회하세요.' : '응답이나 연결을 확인하지 못했습니다. 서버 상태를 확인하고 다시 조회하세요.';
+      lastError = pcFailureText(error?.message);
       records.unshift({id: ++recordId, at, error: lastError});
     }
     if (records.length > 50) records.pop();
@@ -344,6 +367,7 @@ function createPcDashboard(api, onChange) {
   });
   function evidenceSection(stale) {
     const section = make('section', undefined, 'card pc-evidence-section'); section.id = 'pc-evidence-section';
+    section.tabIndex = -1;
     section.append(make('h3', '이상 징후 근거'));
     const status = make('p', !current ? phase === 'error' ? '조회 실패 · 확인 불가' : '조회 전 · 확인 불가'
       : `${phase === 'error' ? '갱신 실패 · 이전 조회' : stale ? '오래된 조회' : 'PC 실측'} · ${time(current.measuredAt)} (한국 시간)`, 'muted');
@@ -396,6 +420,7 @@ function createPcDashboard(api, onChange) {
     root.setAttribute('aria-label', '내 PC 상태 대시보드 · 학생 개선');
     mountedRoot = root;
     const dashboard = make('section', undefined, 'card'); dashboard.id = 'pc-main-dashboard'; root.append(dashboard);
+    dashboard.tabIndex = -1;
     const heading = make('div', undefined, 'pc-dashboard-heading');
     const sdpText = sdpStatus();
     const sdpBadge = make('span', sdpText, 'mode-badge pc-sdp-status');
@@ -406,8 +431,10 @@ function createPcDashboard(api, onChange) {
     dashboard.append(make('p', '이 값은 앱 서버를 실행한 PC에서 측정합니다. 네트워크·방화벽·Windows 기록은 조회만 하며 설정을 변경하지 않습니다.', 'muted'));
     const loading = phase === 'idle' || phase === 'loading';
     const controls = make('div', undefined, 'row');
-    const refresh = make('button', loading ? current ? '갱신 중…' : '실측 조회 중…' : '상태 조회', 'btn pc-refresh'); refresh.type = 'button';
-    refresh.disabled = loading; refresh.addEventListener('click', read); controls.append(refresh);
+    const refresh = make('button', loading ? current ? '다시 조회 중…' : '첫 조회 중…' : '다시 조회', 'btn pc-refresh'); refresh.type = 'button';
+    refresh.setAttribute('aria-disabled', String(loading));
+    refresh.setAttribute('aria-busy', String(loading));
+    refresh.addEventListener('click', read); controls.append(refresh);
     const autoLabel = make('label', undefined, 'btn');
     autoLabel.title = '화면이 보이는 동안 조회 시작을 기준으로 10초마다 다시 측정합니다.';
     const auto = make('input'); auto.type = 'checkbox'; auto.checked = autoRefresh;
@@ -422,11 +449,14 @@ function createPcDashboard(api, onChange) {
     const autoStatus = autoRefresh ? document.hidden || pageHidden ? '화면 숨김 · 자동 조회 일시 중지' : '10초마다 자동 조회 중'
       : '마지막 조회 결과이며 실시간 감시는 아닙니다.';
     const status = make('p', current
-      ? `${phase === 'error' ? `갱신 실패 · 마지막 측정값 유지. ${lastError} · ` : ''}PC 실측 · 조회 완료 시각: ${time(current.measuredAt)} (한국 시간) · 항목별 측정 시점 다름 · ${stale ? '오래된 기록 · ' : ''}${autoStatus}`
-      : phase === 'error' ? `조회 실패 · 현재 값 확인 불가. ${lastError} ${autoRefresh ? autoStatus : ''}`
-      : '첫 측정값을 불러오고 있습니다.', 'pc-measurement-status');
+      ? `${phase === 'loading' ? '내 PC 상태 다시 조회 중 · 이전 측정값 표시 · ' : phase === 'error' ? `내 PC 상태 다시 조회 실패 · 마지막 측정값 유지. ${lastError} · ` : ''}PC 실측 · 마지막 측정 종료 시각: ${time(current.measuredAt)} (한국 시간) · ${stale ? '오래된 기록 · ' : ''}${autoStatus}`
+      : phase === 'error' ? `PC 상태 조회 실패 · 조회하지 못한 항목: CPU·메모리·디스크·네트워크 구성·Windows 방화벽·Windows 기록 · ${lastError}${autoRefresh ? ` · ${autoStatus}` : ''}`
+      : '내 PC 상태 첫 조회 중…', 'pc-measurement-status');
     status.title = status.textContent;
-    status.setAttribute('role', 'status'); dashboard.append(status);
+    status.id = 'pc-measurement-status';
+    status.setAttribute('role', 'status');
+    refresh.setAttribute('aria-describedby', status.id);
+    dashboard.append(status);
     const cards = make('div', undefined, 'grid-2 pc-metrics-grid');
     cards.tabIndex = 0; cards.setAttribute('role', 'region'); cards.setAttribute('aria-label', 'PC 상태 카드 · 가로 스크롤');
     for (const key of ['cpu', 'memory', 'disk']) {
@@ -435,7 +465,7 @@ function createPcDashboard(api, onChange) {
         card.append(make('h4', titles[key]));
         const used = usable && metric.value !== null ? key === 'disk' ? 100 - metric.value : metric.value : null;
         const readout = make('p', finite(used) ? `사용 ${used.toFixed(1)}% / 전체 100%` : usable ? metric.text : loading ? '조회 중' : '확인 불가', 'muted pc-metric-value');
-        const detailText = usable ? metric.value === null ? metric.reason : metric.detail || '' : '';
+        const detailText = usable ? metric.value === null ? `${metric.reason} · ${nextAction(metric.reason)}` : metric.detail || '' : '';
         const detail = make(key === 'disk' ? 'div' : 'p', key === 'disk' ? undefined : detailText, 'muted pc-metric-detail');
         if (key === 'disk') for (const line of detailText.split('\n')) detail.append(make('p', line));
         detail.title = detail.textContent;
@@ -465,7 +495,7 @@ function createPcDashboard(api, onChange) {
     const network = make('article', undefined, 'card pc-metric-card'); network.dataset.metric = 'network';
     const config = current?.metrics.configuration;
     network.append(make('h4', '네트워크 구성'));
-    network.append(make('p', config ? config.text === '확인 불가' ? `확인 불가 · ${config.detail}` : `${config.text} · ${config.detail}` : loading ? '조회 중' : '확인 불가', 'muted'));
+    network.append(make('p', config ? config.text === '확인 불가' ? `확인 불가 · ${config.detail} · ${nextAction(config.detail)}` : `${config.text} · ${config.detail}` : loading ? '조회 중' : '확인 불가', 'muted'));
     network.append(make('p', '연결 상태: 확인 불가 · 제공 API에서 연결 상태를 제공하지 않음', 'muted'));
     cards.append(network);
     for (const [key, title] of [['firewall', 'Windows 방화벽'], ['events', 'Windows 기록']]) {
@@ -479,7 +509,7 @@ function createPcDashboard(api, onChange) {
           value.append(row);
         }
       } else value.textContent = metric ? metric.text : loading ? '조회 중' : '확인 불가';
-      const detail = make('p', metric?.detail || '', 'muted pc-extra-detail');
+      const detail = make('p', metric?.text === '확인 불가' ? `${metric.detail} · ${nextAction(metric.detail)}` : metric?.detail || '', 'muted pc-extra-detail');
       card.append(value, detail);
       if (key === 'events') card.append(make('p', '이 건수는 침해나 공격 탐지 결과가 아닙니다.', 'muted pc-extra-disclaimer'));
       cards.append(card);
@@ -497,20 +527,46 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
   // 제공 카드의 노드와 이벤트는 유지한 채 학생 우선 배치에서 읽기 순서만 조정한다.
   function arrangeProvidedCards() {
     const view = document.getElementById?.('view-protection');
+    if (view) {
+      let coreNav = document.getElementById('student-core-nav');
+      if (!coreNav) {
+        coreNav = document.createElement('nav');
+        coreNav.id = 'student-core-nav'; coreNav.className = 'pc-core-nav';
+        coreNav.setAttribute('aria-label', '핵심 기능 바로가기');
+        for (const [id, label] of [['pc-main-dashboard', '내 PC 점검'], ['pc-evidence-section', '이상 징후 근거']]) {
+          const link = document.createElement('a'); link.href = `#${id}`; link.textContent = label; coreNav.append(link);
+        }
+      }
+      const heading = [...view.children].find(node => node.tagName === 'H1');
+      if (heading && heading.nextElementSibling !== coreNav) view.insertBefore(coreNav, heading.nextElementSibling);
+    }
+    const studentStatus = document.getElementById?.('student-status')?.parentElement;
     const studentIdentity = document.getElementById?.('student-identity')?.parentElement;
     const providedIdentity = document.getElementById?.('identity-title')?.parentElement;
     const identityGrid = studentIdentity?.parentElement;
-    if (identityGrid && providedIdentity?.parentElement === identityGrid
-      && identityGrid.classList?.contains('grid-2')) {
+    if (identityGrid?.classList?.contains('grid-2')) {
       identityGrid.classList.add('student-identity-stack');
-      if (identityGrid.firstElementChild !== studentIdentity) identityGrid.insertBefore(studentIdentity, providedIdentity);
     }
+    if (view && studentStatus?.parentElement === view && identityGrid?.parentElement === view
+      && identityGrid.nextElementSibling !== studentStatus) view.insertBefore(identityGrid, studentStatus);
     const studentAi = document.getElementById?.('student-ai-connection')?.parentElement;
     const aiConnect = document.getElementById?.('ai-connect-card');
     const aiCheck = document.getElementById?.('ai-connection-card');
     if (!view || studentAi?.parentElement !== view) return;
     if (aiConnect?.parentElement === view) view.insertBefore(aiConnect, studentAi);
-    if (aiCheck?.parentElement === view) view.insertBefore(aiCheck, studentAi.nextSibling);
+    // 겹치는 제공 요약은 학생 구현 구역 뒤에 모으고 기존 노드와 이벤트는 유지한다.
+    if (providedIdentity && (providedIdentity.parentElement === identityGrid || providedIdentity.parentElement === view)) view.append(providedIdentity);
+    if (aiCheck?.parentElement === view) view.append(aiCheck);
+    const providedPc = document.getElementById('pc-status');
+    let divider = document.getElementById('student-provided-divider');
+    if (document.documentElement?.dataset?.appearancePreset === 'student-first' && providedPc?.parentElement === view) {
+      if (!divider) {
+        divider = document.createElement('hr');
+        divider.id = 'student-provided-divider'; divider.className = 'student-provided-divider';
+        divider.setAttribute('aria-label', '학생 구현과 제공 화면 구분');
+      }
+      if (providedPc.previousElementSibling !== divider) view.insertBefore(divider, providedPc);
+    } else divider?.remove();
   }
   arrangeProvidedCards();
   if (typeof MutationObserver === 'function') {
