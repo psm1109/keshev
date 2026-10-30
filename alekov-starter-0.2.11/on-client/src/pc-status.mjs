@@ -6,7 +6,6 @@ import {promisify} from 'node:util';
 import {fileURLToPath} from 'node:url';
 import {join} from 'node:path';
 import {setTimeout as wait} from 'node:timers/promises';
-import {createNetworkTrafficReader} from './network-traffic.mjs';
 
 const execute = promisify(execFile);
 const diskRoot = fileURLToPath(new URL('../', import.meta.url));
@@ -19,13 +18,6 @@ function Read-FailureReason($failure) {
   if ($failure.Exception -is [System.UnauthorizedAccessException] -or $failure.FullyQualifiedErrorId -match 'AccessDenied|Unauthorized' -or $failure.CategoryInfo.Category -eq 'PermissionDenied') { return 'permission_denied' }
   return 'query_failed'
 }
-try {
-  $type = [type]::GetTypeFromCLSID([guid]'DCB00C01-570F-4A9B-8D69-199FDBA5723B')
-  $manager = [Activator]::CreateInstance($type)
-  $connected = $manager.IsConnected
-  if ($connected -isnot [bool]) { throw 'Invalid network connection status' }
-  $result.networkConnection = @{ state = 'ok'; connected = $connected }
-} catch { $result.networkConnection = @{ state = 'unavailable'; reason = (Read-FailureReason $_) } }
 try {
   $profiles = @(Get-NetFirewallProfile -ErrorAction Stop | ForEach-Object {
     $enabled = switch ([string]$_.Enabled) { 'True' { $true }; 'False' { $false }; default { $null } }
@@ -42,7 +34,7 @@ try {
   }
   $truncated = $events.Count -gt 5000
   $sample = @($events | Sort-Object -Property TimeCreated -Descending | Select-Object -First 5000)
-  $result.events = @{ state = 'ok'; logs = @('System','Application'); warningCount = @($sample | Where-Object { $_.Level -eq 3 }).Count; errorCount = @($sample | Where-Object { $_.Level -eq 2 }).Count; truncated = $truncated; sampleLimit = 5000; since = $since.ToUniversalTime().ToString('o') }
+  $result.events = @{ state = 'ok'; warningCount = @($sample | Where-Object { $_.Level -eq 3 }).Count; errorCount = @($sample | Where-Object { $_.Level -eq 2 }).Count; truncated = $truncated; sampleLimit = 5000; since = $since.ToUniversalTime().ToString('o') }
 } catch {
   $result.events = @{ state = 'unavailable'; reason = (Read-FailureReason $_) }
 }
@@ -67,10 +59,7 @@ export function cpuUsage(before, after) {
   return {state: 'ok', usagePercent: Math.round(1000 * (1 - (b.idle - a.idle) / (b.total - a.total))) / 10};
 }
 export function normalizeWindowsStatus(raw) {
-  const result = {firewall: missing('invalid_response'), events: missing('invalid_response'), networkConnection: missing('invalid_response')};
-  const connection = raw?.networkConnection;
-  if (connection?.state === 'ok' && typeof connection.connected === 'boolean') result.networkConnection = {state: 'ok', connected: connection.connected};
-  if (connection?.state === 'unavailable') result.networkConnection = missing(connection.reason === 'permission_denied' ? 'permission_denied' : 'query_failed');
+  const result = {firewall: missing('invalid_response'), events: missing('invalid_response')};
   if (raw?.firewall?.state === 'unavailable') result.firewall = missing(raw.firewall.reason === 'permission_denied' ? 'permission_denied' : 'query_failed');
   const profiles = raw?.firewall?.profiles;
   if (raw?.firewall?.state === 'ok' && Array.isArray(profiles) && profiles.length === 3 && ['Domain', 'Private', 'Public'].every(name => profiles.some(p => p.name === name && typeof p.enabled === 'boolean'))) {
@@ -79,13 +68,12 @@ export function normalizeWindowsStatus(raw) {
   const e = raw?.events;
   if (e?.state === 'unavailable') result.events = missing(e.reason === 'permission_denied' ? 'permission_denied' : 'query_failed');
   if (e?.state === 'ok' && count(e.warningCount) && count(e.errorCount) && e.warningCount + e.errorCount <= 5000 && e.sampleLimit === 5000 && typeof e.truncated === 'boolean' && typeof e.since === 'string' && Number.isFinite(Date.parse(e.since))) {
-    const logs = Array.isArray(e.logs) && e.logs.length === 2 && new Set(e.logs).size === 2 && ['System', 'Application'].every(log => e.logs.includes(log)) ? ['System', 'Application'] : null;
-    result.events = {state: 'ok', warningCount: e.warningCount, errorCount: e.errorCount, truncated: e.truncated, sampleLimit: 5000, since: e.since, logs};
+    result.events = {state: 'ok', warningCount: e.warningCount, errorCount: e.errorCount, truncated: e.truncated, sampleLimit: 5000, since: e.since};
   }
   return result;
 }
 
-export function createPcStatusReader({system = os, disk = statfs, run = execute, platform = os.platform(), clock = () => new Date(), pause = wait, trafficReader = createNetworkTrafficReader({run, platform})} = {}) {
+export function createPcStatusReader({system = os, disk = statfs, run = execute, platform = os.platform(), clock = () => new Date(), pause = wait} = {}) {
   return async function read({signal, directory = diskRoot} = {}) {
     signal?.throwIfAborted();
     const metrics = {};
@@ -101,28 +89,23 @@ export function createPcStatusReader({system = os, disk = statfs, run = execute,
       const entries = Object.values(system.networkInterfaces()).filter(Array.isArray).map(rows => rows.filter(row => row.internal === false));
       metrics.network = {state: 'ok', interfaceCount: entries.filter(rows => rows.length).length, ipv4Count: entries.flat().filter(row => row.family === 'IPv4' || row.family === 4).length};
     } catch {metrics.network = missing('query_failed');}
-    const traffic = (async () => {
-      try {metrics.network.traffic = await trafficReader({signal});}
-      catch {metrics.network.traffic = missing(signal?.aborted ? 'cancelled' : 'query_failed');}
-    })();
     const drive = (async () => {
       try {const d = await disk(directory); const totalBytes = Number(d.blocks) * Number(d.bsize), freeBytes = Number(d.bavail) * Number(d.bsize);
         metrics.disk = finite(totalBytes) && totalBytes > 0 && finite(freeBytes) && freeBytes <= totalBytes ? {state: 'ok', totalBytes, freeBytes} : missing('invalid_response');}
       catch {metrics.disk = missing('query_failed');}
     })();
     const windows = (async () => {
-      if (platform !== 'win32') {metrics.firewall = missing('unsupported'); metrics.events = missing('unsupported'); metrics.network.connection = missing('unsupported'); return;}
+      if (platform !== 'win32') {metrics.firewall = missing('unsupported'); metrics.events = missing('unsupported'); return;}
       try {
         const exe = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
         const {stdout} = await run(exe, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', WINDOWS_READ], {windowsHide: true, encoding: 'utf8', timeout: 8000, maxBuffer: 128 * 1024, signal});
-        const {networkConnection, ...status} = normalizeWindowsStatus(JSON.parse(stdout.trim()));
-        Object.assign(metrics, status); metrics.network.connection = networkConnection;
+        Object.assign(metrics, normalizeWindowsStatus(JSON.parse(stdout.trim())));
       } catch (error) {
         const reason = signal?.aborted ? 'cancelled' : error?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' ? 'query_failed' : error?.killed || error?.code === 'ETIMEDOUT' ? 'timeout' : 'query_failed';
-        metrics.firewall = missing(reason); metrics.events = missing(reason); metrics.network.connection = missing(reason);
+        metrics.firewall = missing(reason); metrics.events = missing(reason);
       }
     })();
-    await Promise.all([cpu, drive, windows, traffic]); signal?.throwIfAborted();
+    await Promise.all([cpu, drive, windows]); signal?.throwIfAborted();
     return {schema: 'aleph.on.pc-status.v1', measuredAt: clock().toISOString(), source: 'local-pc', metrics};
   };
 }

@@ -445,19 +445,6 @@ export function createOnServer(serverOptions={}) {
         const data=await bounded(signal=>readPcStatus({signal,directory:assetsRoot}));
         send(200,{ok:true,data});return;
       }
-      if(url.pathname==='/api/sdp/status'){
-        if(req.method!=='GET'){send(405,{ok:false,error:{code:'METHOD_NOT_ALLOWED',message:'조회만 지원합니다.',retryable:false}});return;}
-        if(req.headers.origin!==undefined&&req.headers.origin!==`http://${host}`)throw engineError('ORIGIN_REJECTED','',403);
-        if(!sdpHostEngine){send(200,{ok:true,data:{state:'unavailable',reason:'adapter_unconfigured'}});return;}
-        try {
-          const identity=assertData('identity',await callEngine(sdpHostEngine,'readIdentity'));
-          send(200,{ok:true,data:identity.session.status==='active'?{state:'connected'}:{state:'unavailable',reason:'session_unverified'}});
-        } catch(error) {
-          if(lifetime.signal.aborted)throw error;
-          send(200,{ok:true,data:{state:'unavailable',reason:error?.code==='ENGINE_TIMEOUT'?'timeout':'query_failed'}});
-        }
-        return;
-      }
       if(url.pathname.startsWith('/api/native-login/')){
         const kind=url.pathname.slice('/api/native-login/'.length);
         if(req.method!=='POST'||!['start','status','redeem','current','cancel'].includes(kind)){send(404,{ok:false,error:{code:'NOT_FOUND',message:'지원하지 않는 주소입니다.',retryable:false}});return;}
@@ -479,7 +466,7 @@ export function createOnServer(serverOptions={}) {
         const kind=appearanceRoutes.get(url.pathname),read=await readStudentAppearance(resolve(assetsRoot)),view=appearanceView(read);
         const image=kind==='image'&&read.state==='valid'?read.images.find(row=>'/'+row.path===url.pathname)??null:null;
         if(kind==='image'&&!image){send(404,{ok:false,error:{code:'NOT_FOUND',message:'지원하지 않는 주소입니다.',retryable:false}});return;}
-        const data=kind==='json'?Buffer.from(JSON.stringify(view),'utf8'):kind==='css'?Buffer.from(appearanceCss(view,read.state==='valid'?read.value.palette:null),'utf8'):image.bytes;
+        const data=kind==='json'?Buffer.from(JSON.stringify(view),'utf8'):kind==='css'?Buffer.from(appearanceCss(view),'utf8'):image.bytes;
         res.writeHead(200,{'content-type':kind==='json'?'application/json; charset=utf-8':kind==='css'?'text/css; charset=utf-8':image.type,'cache-control':'no-store','content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'",'x-content-type-options':'nosniff'});res.end(data);return;
       }
       if(req.method==='POST'&&connectionRoutes.has(url.pathname)){

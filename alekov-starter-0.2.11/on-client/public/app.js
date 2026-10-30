@@ -3,9 +3,6 @@
 // 기존 연결의 자동 재시도 없음. 로컬 PC 조회의 주기적 확인은 학생이 직접 선택한다.
 import { normalizeScan, createVulnerabilitiesView } from '/vulnerabilities-view.mjs';
 import {mountPcStatus} from '/pc-status-view.mjs';
-import {initTheme} from '/student-appearance.mjs';
-
-initTheme();
 
 const STUDENT_MODULE = '/student/extension.mjs';
 const STUDENT_PENDING = '학생 구현 대기';
@@ -40,7 +37,7 @@ const KIND_LABELS ={ access: '접속 기록', xdr: 'XDR 사건' };
 
 // 학생 확장은 아래 정확한 문자열만 GET 한다. /api/pc/status 는 제공 카드와 같은 읽기 전용 실측이다.
 const STUDENT_PC_PATH = '/api/pc/status';
-const STUDENT_GET_PATHS = ['/api/me', '/api/apps', '/api/events', '/api/devices', '/api/sessions', '/api/vulnerabilities', '/api/sdp/status', STUDENT_PC_PATH];
+const STUDENT_GET_PATHS = ['/api/me', '/api/apps', '/api/events', '/api/devices', '/api/sessions', '/api/vulnerabilities', STUDENT_PC_PATH];
 
 const RESOURCE_LABELS = {
   me: '로그인 정보',
@@ -502,7 +499,6 @@ function renderErrors() {
 // ---------- 메뉴 ----------
 
 function selectView(view, { focus = false } = {}) {
-  const changed = state.view !== view;
   state.view = view;
   for (const tab of document.querySelectorAll('#nav [role="tab"]')) {
     const selected = tab.dataset.view === view;
@@ -511,7 +507,6 @@ function selectView(view, { focus = false } = {}) {
     if (selected && focus) tab.focus();
     $(tab.getAttribute('aria-controls')).hidden = !selected;
   }
-  if (changed) $('main').scrollTop = 0;
 }
 
 function setupNav() {

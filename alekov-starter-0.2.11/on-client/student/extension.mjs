@@ -2,6 +2,36 @@
 // 제공 UI를 받은 것만으로 단계 완료를 인정하지 않습니다.
 // 학생 개선: 제공 PC 조회 API를 요약·시각화한다. 최근 측정값은 이 화면의 메모리에만 둔다.
 function createPcDashboard(api, onChange) {
+  let dashboardStyleApplied = false;
+  function applyDashboardStyle() {
+    if (dashboardStyleApplied) return;
+    const sheet = [...(document.styleSheets || [])].find(item => item.href?.endsWith('/student/appearance.css'));
+    if (!sheet) return;
+    const rules = [
+      '[data-student-dashboard] .pc-metrics-grid { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; margin: 12px 0 16px; }',
+      '[data-student-dashboard] .pc-metrics-grid > .pc-metric-card { flex: 0 0 calc((100% - 36px) / 4); min-width: 260px; min-height: 180px; margin: 0; }',
+      '[data-student-dashboard] .pc-indicators-grid { display: block; margin-bottom: 0; }',
+      '[data-student-dashboard] .pc-indicators-grid > .card { padding: 10px 12px; }',
+      '[data-student-dashboard] .pc-indicator-heading { align-items: center; justify-content: space-between; }',
+      '[data-student-dashboard] .pc-chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; }',
+      '[data-student-dashboard] .pc-chart-cpu { color: var(--accent); }',
+      '[data-student-dashboard] .pc-chart-memory { color: var(--student); }',
+      '[data-student-dashboard] .pc-combined-plot { display: flex; gap: 8px; align-items: stretch; }',
+      '[data-student-dashboard] .pc-combined-axis { display: flex; flex: 0 0 34px; flex-direction: column; justify-content: space-between; font-size: 11px; color: var(--muted); }',
+      '[data-student-dashboard] .pc-combined-plot svg { display: block; flex: 1; min-width: 0; }',
+      '[data-student-dashboard] .pc-combined-times { display: flex; justify-content: space-between; margin-left: 42px; font-size: 11px; color: var(--muted); }',
+      '[data-student-dashboard] .pc-combined-times > :only-child { margin: auto; }',
+      '[data-student-dashboard] .pc-dashboard-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }',
+      '[data-student-dashboard] .pc-dashboard-heading h3, [data-student-dashboard] .pc-dashboard-heading .pc-sdp-status { margin: 0; }',
+      '#view-protection .student-identity-stack { grid-template-columns: minmax(0, 1fr); }'
+    ];
+    try {
+      for (const rule of rules) sheet.insertRule(rule, sheet.cssRules.length);
+      dashboardStyleApplied = true;
+    } catch {
+      // 제공 CSS를 수정할 수 없는 환경에서는 기존 카드 배치를 유지한다.
+    }
+  }
   const historyLimit = 12;
   const history = [];
   const records = [];
@@ -10,7 +40,7 @@ function createPcDashboard(api, onChange) {
   const overloadCounts = {cpu: 0, memory: 0};
   let overloadMeasuredAt = null;
   let phase = 'idle', current = null, expiryTimer, mountedRoot, renderView;
-  let sdpStatus = {state: 'loading'};
+  let sdpSnapshot = null;
   let lastError = '';
   let autoRefresh = false, autoTimer = null, pageHidden = false;
   let lastReadStartedAt = null;
@@ -66,7 +96,7 @@ function createPcDashboard(api, onChange) {
     updateElement(previous, next);
     mountedRoot = previous;
   }
-  const titles = {cpu: 'CPU', memory: '메모리', disk: '디스크 여유', network: '네트워크 속도'};
+  const titles = {cpu: 'CPU', memory: '메모리', disk: '디스크 여유'};
   const finite = n => typeof n === 'number' && Number.isFinite(n) && n >= 0;
   const percent = n => finite(n) && n <= 100;
   const time = value => new Date(value).toLocaleString('ko-KR', {timeZone: 'Asia/Seoul', hour12: false});
@@ -78,23 +108,6 @@ function createPcDashboard(api, onChange) {
     if (cls) node.className = cls;
     return node;
   };
-  function networkReadings(row, {loading = false, previous = null, showValues = true} = {}) {
-    const readings = make('div', undefined, 'pc-network-readings');
-    for (const [key, label, direction] of [['upload', '↑ 업로드', 'upload'], ['network', '↓ 다운로드', 'download']]) {
-      const value = row?.[key], before = previous?.[key];
-      const group = make('div', undefined, `pc-network-${direction}`);
-      group.dataset.trafficDirection = direction;
-      const line = make('p', undefined, showValues ? 'pc-network-value' : 'pc-network-value pc-network-legend');
-      line.append(make('span', label));
-      if (showValues) line.append(make('strong', finite(value) ? `${value.toFixed(2)} Mbps` : loading ? '조회 중' : '확인 불가'));
-      const delta = make('small', finite(value) && finite(before)
-        ? `직전 대비 ${value > before ? '+' : ''}${(value - before).toFixed(2)} Mbps` : '', 'muted');
-      delta.title = delta.textContent;
-      delta.hidden = !finite(value) || !finite(before);
-      line.append(delta); group.append(line); readings.append(group);
-    }
-    return readings;
-  }
   function normalize(data) {
     const measured = Date.parse(data?.measuredAt);
     if (data?.schema !== 'aleph.on.pc-status.v1' || data.source !== 'local-pc'
@@ -116,16 +129,6 @@ function createPcDashboard(api, onChange) {
         }
       }
       let reason = reasons[m?.reason] || '응답 값 확인 불가';
-      if (key === 'network') {
-        const traffic = m?.traffic;
-        const sampled = traffic?.state === 'ok' && traffic.source === 'adapter-counters'
-          && finite(traffic.sampleMs) && traffic.sampleMs >= 250 && traffic.sampleMs <= 10000;
-        const upload = sampled && finite(traffic.uploadMbps) ? traffic.uploadMbps : null;
-        value = sampled && finite(traffic.downloadMbps) ? traffic.downloadMbps : null;
-        reason = reasons[traffic?.reason] || '송수신 속도 확인 불가';
-        metrics[key] = {value, upload, reason};
-        continue;
-      }
       metrics[key] = {value, text, detail, reason};
     }
     const validCount = n => Number.isSafeInteger(n) && n >= 0;
@@ -133,15 +136,10 @@ function createPcDashboard(api, onChange) {
     const unavailable = m => ({text: '확인 불가', detail: reasons[m?.reason] || '응답 값 확인 불가'});
     metrics.configuration = n?.state === 'ok' && validCount(n.interfaceCount) && validCount(n.ipv4Count)
       ? {text: `인터페이스 ${n.interfaceCount}개`, detail: `IPv4 구성 ${n.ipv4Count}개`} : unavailable(n);
-    const connection = n?.connection;
-    metrics.networkConnection = connection?.state === 'ok' && typeof connection.connected === 'boolean'
-      ? `네트워크 ${connection.connected ? '연결됨' : '미연결'}`
-      : `네트워크 연결 확인 불가 · ${reasons[connection?.reason] || '응답 값 확인 불가'}`;
     metrics.firewall = f?.state === 'ok' && Array.isArray(f.profiles) && f.profiles.length === 3 && ['Domain', 'Private', 'Public'].every(name => f.profiles.filter(p => p.name === name && typeof p.enabled === 'boolean').length === 1)
       ? {profiles: ['Domain', 'Private', 'Public'].map(name => `${name} ${f.profiles.find(p => p.name === name).enabled ? '켜짐' : '꺼짐'}`), detail: ''} : unavailable(f);
-    const logs = Array.isArray(e?.logs) && e.logs.length === 2 && new Set(e.logs).size === 2 && ['System', 'Application'].every(log => e.logs.includes(log));
     metrics.events = e?.state === 'ok' && validCount(e.warningCount) && validCount(e.errorCount) && e.warningCount + e.errorCount <= 5000 && e.sampleLimit === 5000 && typeof e.truncated === 'boolean'
-      ? {text: `경고 ${e.warningCount}건 · 오류 ${e.errorCount}건`, detail: `${logs ? 'System · Application' : '로그별 범위 확인 불가'}\n최근 24시간${e.truncated ? ' · 최근 5,000건 일부 집계' : ''}`}
+      ? {text: `경고 ${e.warningCount}건 · 오류 ${e.errorCount}건`, detail: `System·Application 합계 · 최근 24시간${e.truncated ? ' · 최근 5,000건 일부 집계' : ''}`}
       : unavailable(e);
     return {measuredAt: data.measuredAt, metrics};
   }
@@ -157,18 +155,6 @@ function createPcDashboard(api, onChange) {
     }
     overloadMeasuredAt = measuredAt;
   }
-  async function readSdp() {
-    if (sdpStatus.state === 'loading' && sdpStatus.started) return;
-    sdpStatus = {state: 'loading', started: true}; notify();
-    try {
-      const result = await api?.get('/api/sdp/status');
-      const data = result?.ok === true ? result.data : null;
-      sdpStatus = data?.state === 'connected' ? {state: 'connected'}
-        : data?.state === 'disconnected' ? {state: 'disconnected'}
-        : {state: 'unavailable', reason: ({adapter_unconfigured: '연결 어댑터 미설정', session_unverified: '활성 세션 미확인', timeout: '조회 시간 초과', query_failed: '세션 조회 실패'})[data?.reason] || '응답 또는 서버 연결 확인 불가'};
-    } catch {sdpStatus = {state: 'unavailable', reason: '서버 연결 확인 불가'};}
-    notify();
-  }
   async function read() {
     if (pageHidden || phase === 'loading') return;
     stopAutoRefresh();
@@ -181,10 +167,9 @@ function createPcDashboard(api, onChange) {
       trackOverload(current);
       phase = 'ok';
       lastError = '';
-      history.push({at: current.measuredAt, cpu: current.metrics.cpu.value, memory: current.metrics.memory.value,
-        network: current.metrics.network.value, upload: current.metrics.network.upload});
-      const {cpu: recordCpu, memory: recordMemory, disk: recordDisk, network: recordNetwork} = current.metrics;
-      records.unshift({id: ++recordId, at: current.measuredAt, metrics: {cpu: recordCpu, memory: recordMemory, disk: recordDisk, network: recordNetwork}});
+      history.push({at: current.measuredAt, cpu: current.metrics.cpu.value, memory: current.metrics.memory.value});
+      const {cpu: recordCpu, memory: recordMemory, disk: recordDisk} = current.metrics;
+      records.unshift({id: ++recordId, at: current.measuredAt, metrics: {cpu: recordCpu, memory: recordMemory, disk: recordDisk}});
       clearTimeout(expiryTimer);
       expiryTimer = setTimeout(notify, Math.max(1, 60001 - (Date.now() - Date.parse(current.measuredAt))));
     } catch (error) {
@@ -192,7 +177,7 @@ function createPcDashboard(api, onChange) {
       for (const key of Object.keys(overloadCounts)) overloadCounts[key] = 0;
       overloadMeasuredAt = null;
       const at = new Date().toISOString();
-      history.push({at, cpu: null, memory: null, network: null, upload: null});
+      history.push({at, cpu: null, memory: null});
       lastError = error?.message === 'TIMEOUT' ? '시간 초과: 서버가 실행 중인지 확인하고 다시 조회하세요.' : '응답이나 연결을 확인하지 못했습니다. 서버 상태를 확인하고 다시 조회하세요.';
       records.unshift({id: ++recordId, at, error: lastError});
     }
@@ -201,8 +186,12 @@ function createPcDashboard(api, onChange) {
     notify();
     scheduleAutoRefresh();
   }
-  function chart(key) {
+  function chart() {
     const ns = 'http://www.w3.org/2000/svg';
+    const frame = make('div', undefined, 'pc-combined-chart');
+    const plot = make('div', undefined, 'pc-combined-plot');
+    const axis = make('div', undefined, 'pc-combined-axis');
+    for (const value of [100, 50, 0]) axis.append(make('span', `${value}%`));
     const svg = document.createElementNS(ns, 'svg');
     const add = (tag, attrs, text) => {
       const node = document.createElementNS(ns, tag);
@@ -210,23 +199,16 @@ function createPcDashboard(api, onChange) {
       if (text) node.textContent = text;
       svg.append(node); return node;
     };
-    const rows = history.slice(-12), network = key === 'network';
-    const series = network ? [{key: 'upload', label: '업로드', color: 'var(--allow)'}, {key: 'network', label: '다운로드', color: 'var(--network-download)'}]
-      : [{key, label: titles[key], color: 'var(--accent)'}];
-    // 사용률은 0~100% 고정, 속도는 관측 범위에 맞는 Mbps 눈금을 쓴다.
-    const peak = Math.max(0, ...rows.flatMap(row => series.map(item => finite(row[item.key]) ? row[item.key] : 0)));
-    const target = Math.max(1, peak * 1.1), magnitude = 10 ** Math.floor(Math.log10(target));
-    const maximum = network ? Math.ceil(target / magnitude) * magnitude : 100;
-    const valueLabel = value => network ? `${value.toFixed(2)} Mbps` : `${value.toFixed(1)}%`;
-    svg.setAttribute('viewBox', '0 0 360 190'); svg.setAttribute('width', '100%'); svg.setAttribute('height', '190');
-    svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', `${titles[key]} 변화. ${network ? '업로드는 초록색, 다운로드는 파란색. 활성 어댑터 송수신 속도, 단위 Mbps.' : '실측 사용률, 단위 %.'} 각 점은 조회 시각과 측정값을 나타냅니다.`);
-    add('title', {}, `${titles[key]} 변화`);
-    add('desc', {}, `세로축 0~${maximum}${network ? ' Mbps (관측값에 따라 자동 조정, 회선 최대 속도가 아님)' : '%'}, 가로축 실제 조회 시각. 확인하지 못한 구간은 선을 잇지 않습니다.`);
-    for (const value of [0, maximum / 2, maximum]) {
-      const y = 148 - value / maximum * 132;
-      add('line', {x1: 62, y1: y, x2: 348, y2: y, stroke: 'var(--border)'});
-      add('text', {x: 0, y: y + 4, fill: 'var(--muted)', 'font-size': 11}, `${value}${network ? ' Mbps' : '%'}`);
-    }
+    const rows = history.slice(-12);
+    const series = [{key: 'cpu', label: 'CPU', color: 'var(--accent)'},
+      {key: 'memory', label: '메모리', color: 'var(--student)'}];
+    const valueLabel = value => `${value.toFixed(1)}%`;
+    svg.setAttribute('viewBox', '0 0 1000 100'); svg.setAttribute('width', '100%'); svg.setAttribute('height', '100');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', 'CPU와 메모리 사용률 변화. 각 점은 조회 시각과 측정값을 나타냅니다.');
+    add('title', {}, 'CPU·메모리 사용률 변화');
+    add('desc', {}, '세로축 0~100%, 가로축 실제 조회 시각. 확인하지 못한 구간은 선을 잇지 않습니다.');
+    for (const y of [6, 50, 94]) add('line', {x1: 0, y1: y, x2: 1000, y2: y, stroke: 'var(--border)'});
     const start = rows.length ? Date.parse(rows[0].at) : 0;
     const duration = rows.length ? Date.parse(rows.at(-1).at) - start : 0;
     for (const item of series) {
@@ -234,35 +216,40 @@ function createPcDashboard(api, onChange) {
       const flush = () => {if (points.length > 1) add('polyline', {points: points.join(' '), fill: 'none', stroke: item.color, 'stroke-width': 2.5}); points = [];};
       for (const row of rows) {
         if (!finite(row[item.key])) {flush(); continue;}
-        const x = duration > 0 ? 62 + (Date.parse(row.at) - start) / duration * 286 : 205;
-        const y = 148 - row[item.key] / maximum * 132;
+        const x = duration > 0 ? 4 + (Date.parse(row.at) - start) / duration * 992 : 500;
+        const y = 94 - row[item.key] / 100 * 88;
         points.push(`${x},${y}`);
-        const point = add('circle', {cx: x, cy: y, r: 3.5, fill: item.color});
+        const point = add('circle', {cx: x, cy: y, r: 3, fill: item.color});
         const title = document.createElementNS(ns, 'title'); title.textContent = `${time(row.at)} · ${item.label} ${valueLabel(row[item.key])}`; point.append(title);
       }
       flush();
     }
+    plot.append(axis, svg); frame.append(plot);
     const shortTime = at => new Date(at).toLocaleTimeString('ko-KR', {timeZone: 'Asia/Seoul', hour12: false});
-    add('text', {x: 62, y: 178, fill: 'var(--muted)', 'font-size': 11}, rows.length ? shortTime(rows[0].at) : '—');
-    add('text', {x: 348, y: 178, fill: 'var(--muted)', 'font-size': 11, 'text-anchor': 'end'}, rows.length ? shortTime(rows.at(-1).at) : '—');
-    return svg;
+    const times = make('div', undefined, 'pc-combined-times');
+    if (rows.length) times.append(make('span', shortTime(rows[0].at)));
+    if (rows.length > 1) times.append(make('span', shortTime(rows.at(-1).at)));
+    frame.append(times);
+    return frame;
   }
   function indicatorCards() {
-    const cards = make('div', undefined, 'pc-indicators-grid');
-    for (const key of ['cpu', 'memory', 'network']) {
-      const card = make('article', undefined, 'card'); card.dataset.indicator = key;
-      card.append(make('h4', titles[key]));
+    const cards = make('div', undefined, 'grid-2 pc-indicators-grid');
+    const card = make('article', undefined, 'card'); card.dataset.indicator = 'cpu-memory';
+    const heading = make('div', undefined, 'row pc-indicator-heading');
+    heading.append(make('h4', 'CPU·메모리 변화'));
+    const legend = make('div', undefined, 'pc-chart-legend');
+    for (const key of ['cpu', 'memory']) {
       const latest = history.at(-1)?.[key], previous = history.at(-2)?.[key];
-      const network = key === 'network', digits = network ? 2 : 1;
-      const meta = make('div', undefined, 'pc-indicator-meta');
-      if (network) meta.append(networkReadings(history.at(-1), {previous: history.at(-2), showValues: false}));
-      if (!network && finite(latest) && finite(previous)) {
+      const label = make('span', undefined, 'muted');
+      label.append(make('span', '● ', `pc-chart-${key}`), make('span', titles[key]));
+      if (finite(latest) && finite(previous)) {
         const change = latest - previous;
-        meta.append(make('p', `직전 조회 대비 ${change > 0 ? '+' : ''}${change.toFixed(digits)}%p`, 'muted'));
-      } else if (!network) meta.append(make('p', '사용률 · 전체 100% 기준', 'muted'));
-      card.append(meta, chart(key));
-      cards.append(card);
+        label.append(make('span', ` ${change > 0 ? '+' : ''}${change.toFixed(1)}%p`));
+      }
+      legend.append(label);
     }
+    heading.append(legend);
+    card.append(heading, chart()); cards.append(card);
     return cards;
   }
   function indicatorsSection() {
@@ -289,7 +276,7 @@ function createPcDashboard(api, onChange) {
     indicators.append(tabs);
     const graphPanel = make('section', undefined, 'pc-detail-panel'); graphPanel.id = 'pc-panel-indicators';
     graphPanel.setAttribute('role', 'tabpanel'); graphPanel.setAttribute('aria-labelledby', 'pc-tab-indicators'); graphPanel.tabIndex = 0; graphPanel.hidden = activeTab !== 'indicators';
-    graphPanel.append(make('p', '상태 조회마다 기록한 최근 12회의 변화입니다. 확인하지 못한 구간은 선을 잇지 않습니다. 새로고침하면 기록이 초기화됩니다.', 'muted'));
+    graphPanel.append(make('p', '최근 12회 변화 · 조회 실패 구간은 연결하지 않음 · 새로고침하면 초기화', 'muted'));
     graphPanel.append(indicatorCards()); indicators.append(graphPanel);
     const log = make('section', undefined, 'pc-detail-panel pc-records-panel'); log.id = 'pc-panel-records'; log.setAttribute('role', 'tabpanel'); log.setAttribute('aria-labelledby', 'pc-tab-records'); log.tabIndex = 0; log.hidden = activeTab !== 'records';
     const pages = Math.max(1, Math.ceil(records.length / 5)); recordPage = Math.min(recordPage, pages - 1);
@@ -304,7 +291,6 @@ function createPcDashboard(api, onChange) {
         const rows = [
           `CPU: ${value(m.cpu)}`, `메모리: ${value(m.memory)}${m.memory.detail ? ` · ${m.memory.detail}` : ''}`,
           `디스크 사용: ${m.disk.value === null ? `확인 불가 · ${m.disk.reason}` : `${(100 - m.disk.value).toFixed(1)}% · ${m.disk.detail.replace('\n', ' · ')}`}`,
-          `네트워크: 업로드 ${finite(m.network.upload) ? `${m.network.upload.toFixed(2)} Mbps` : '확인 불가'} · 다운로드 ${finite(m.network.value) ? `${m.network.value.toFixed(2)} Mbps` : '확인 불가'}${m.network.value === null || m.network.upload === null ? ` · ${m.network.reason}` : ''}`,
         ];
         const values = make('ul', undefined, 'pc-history-values');
         for (const line of rows) values.append(make('li', line));
@@ -342,7 +328,7 @@ function createPcDashboard(api, onChange) {
     return svg;
   }
   // 화면 초기화 후 최초 한 번 조회하며, 이후 반복은 체크박스로 켰을 때만 한다.
-  queueMicrotask(() => { if (phase === 'idle') void read(); void readSdp(); });
+  queueMicrotask(() => { if (phase === 'idle') void read(); });
   document.addEventListener('visibilitychange', () => {
     stopAutoRefresh();
     if (!document.hidden && !pageHidden && (autoRefresh || phase === 'idle')) void read();
@@ -385,22 +371,39 @@ function createPcDashboard(api, onChange) {
     }
     return section;
   }
-  return renderView = function render() {
+  function sdpStatus() {
+    const sessions = sdpSnapshot?.sessions;
+    if (sdpSnapshot?.mode === 'connected' && sessions?.status === 'ok' && sessions.mode === 'connected'
+      && Array.isArray(sessions.data) && sessions.data.some(session => session?.status === 'active')) return 'SDP 연결됨';
+    if (sdpSnapshot?.mode === 'disconnected' && sessions?.status === 'error' && sessions.mode === 'disconnected'
+      && sessions.error?.code === 'ENGINE_NOT_CONNECTED') return 'SDP 미연결';
+    if (sessions?.mode === 'demo' || sdpSnapshot?.mode === 'demo') return 'SDP 연결 상태 확인 불가 · 예시 자료';
+    if (sessions?.status === 'loading' || sessions?.status === 'idle') return 'SDP 연결 상태 확인 불가 · 세션 조회 중';
+    if (sessions?.status === 'error') {
+      const code = sessions.error?.code;
+      const reason = code === 'TIMEOUT' || code === 'REQUEST_TIMEOUT' ? '세션 조회 시간 초과'
+        : code === 'PERMISSION_DENIED' || code === 'ACCESS_DENIED' || code === 'AUTHORIZATION_REQUIRED' ? '세션 읽기 권한 부족'
+          : code === 'ENGINE_RESULT_UNVERIFIED' || code === 'CONTRACT_MISMATCH' ? '세션 응답 검증 실패'
+            : code === 'ENGINE_NOT_CONNECTED' ? '연결 여부를 확인하지 못함' : '세션 조회 실패';
+      return `SDP 연결 상태 확인 불가 · ${reason}`;
+    }
+    return 'SDP 연결 상태 확인 불가 · 검증된 세션 응답 없음';
+  }
+  return renderView = function render(sdp) {
+    if (sdp !== undefined) sdpSnapshot = sdp;
+    applyDashboardStyle();
     const root = make('div'); root.dataset.studentDashboard = '';
     root.setAttribute('aria-label', '내 PC 상태 대시보드 · 학생 개선');
     mountedRoot = root;
     const dashboard = make('section', undefined, 'card'); dashboard.id = 'pc-main-dashboard'; root.append(dashboard);
-    dashboard.append(make('h3', '내 PC 상태 대시보드'));
-    const sdpText = sdpStatus.state === 'connected' ? 'SDP 연결됨 · 마지막 세션 확인'
-      : sdpStatus.state === 'disconnected' ? 'SDP 미연결'
-      : sdpStatus.state === 'loading' ? 'SDP 연결 상태 확인 중'
-      : `SDP 연결 상태 확인 불가 · ${sdpStatus.reason}`;
-    const sdp = make('div', undefined, 'row pc-sdp-status');
-    sdp.append(make('span', sdpText, 'muted'));
-    const retrySdp = make('button', 'SDP 다시 확인', 'btn'); retrySdp.type = 'button';
-    retrySdp.disabled = sdpStatus.state === 'loading'; retrySdp.addEventListener('click', readSdp);
-    sdp.append(retrySdp); dashboard.append(sdp);
-    dashboard.append(make('p', '서버를 다른 기기에서 실행하면 사용자 PC의 실측값이 아닙니다. 네트워크는 활성 어댑터의 송수신 속도이며 회선 최대 속도가 아닙니다.', 'muted'));
+    const heading = make('div', undefined, 'pc-dashboard-heading');
+    const sdpText = sdpStatus();
+    const sdpBadge = make('span', sdpText, 'mode-badge pc-sdp-status');
+    sdpBadge.dataset.mode = sdpText === 'SDP 연결됨' ? 'connected' : sdpText === 'SDP 미연결' ? 'disconnected' : 'unknown';
+    sdpBadge.setAttribute('role', 'status');
+    heading.append(make('h3', '내 PC 상태 대시보드'), sdpBadge);
+    dashboard.append(heading);
+    dashboard.append(make('p', '이 값은 앱 서버를 실행한 PC에서 측정합니다. 네트워크·방화벽·Windows 기록은 조회만 하며 설정을 변경하지 않습니다.', 'muted'));
     const loading = phase === 'idle' || phase === 'loading';
     const controls = make('div', undefined, 'row');
     const refresh = make('button', loading ? current ? '갱신 중…' : '실측 조회 중…' : '상태 조회', 'btn pc-refresh'); refresh.type = 'button';
@@ -424,25 +427,17 @@ function createPcDashboard(api, onChange) {
       : '첫 측정값을 불러오고 있습니다.', 'pc-measurement-status');
     status.title = status.textContent;
     status.setAttribute('role', 'status'); dashboard.append(status);
-    const cards = make('div', undefined, 'pc-metrics-grid');
+    const cards = make('div', undefined, 'grid-2 pc-metrics-grid');
     cards.tabIndex = 0; cards.setAttribute('role', 'region'); cards.setAttribute('aria-label', 'PC 상태 카드 · 가로 스크롤');
-    for (const key of ['cpu', 'memory', 'disk', 'network']) {
+    for (const key of ['cpu', 'memory', 'disk']) {
         const card = make('article', undefined, 'card pc-metric-card'); card.dataset.metric = key;
         const metric = current?.metrics[key], usable = Boolean(current);
-        card.append(make('h4', key === 'network' ? '네트워크' : titles[key]));
-        if (key === 'network') {
-          card.append(networkReadings(usable ? {network: metric.value, upload: metric.upload} : null, {loading: !usable && loading}));
-          const config = current?.metrics.configuration;
-          const configurationText = config ? config.text === '확인 불가' ? `구성 확인 불가 · ${config.detail}` : `${config.text} · ${config.detail}` : loading ? '구성 조회 중' : '구성 확인 불가';
-          const configuration = make('p', `${configurationText}\n${current ? current.metrics.networkConnection : loading ? '연결 상태 조회 중' : '연결 상태 확인 불가'}`, 'muted pc-network-configuration');
-          configuration.title = configuration.textContent; card.append(configuration);
-          const note = make('p', usable && (metric.value === null || metric.upload === null) ? metric.reason : '활성 어댑터 송수신량 · 약 1초 평균', 'muted pc-metric-notice');
-          note.title = note.textContent; card.append(note);
-          cards.append(card); continue;
-        }
+        card.append(make('h4', titles[key]));
         const used = usable && metric.value !== null ? key === 'disk' ? 100 - metric.value : metric.value : null;
         const readout = make('p', finite(used) ? `사용 ${used.toFixed(1)}% / 전체 100%` : usable ? metric.text : loading ? '조회 중' : '확인 불가', 'muted pc-metric-value');
-        const detail = make('p', usable ? metric.value === null ? metric.reason : metric.detail || '' : '', 'muted pc-metric-detail');
+        const detailText = usable ? metric.value === null ? metric.reason : metric.detail || '' : '';
+        const detail = make(key === 'disk' ? 'div' : 'p', key === 'disk' ? undefined : detailText, 'muted pc-metric-detail');
+        if (key === 'disk') for (const line of detailText.split('\n')) detail.append(make('p', line));
         detail.title = detail.textContent;
         card.append(readout, bar(`${key === 'disk' ? '디스크' : titles[key]} 사용률`, used), detail);
         if (key === 'disk') {
@@ -467,6 +462,12 @@ function createPcDashboard(api, onChange) {
         }
         cards.append(card);
     }
+    const network = make('article', undefined, 'card pc-metric-card'); network.dataset.metric = 'network';
+    const config = current?.metrics.configuration;
+    network.append(make('h4', '네트워크 구성'));
+    network.append(make('p', config ? config.text === '확인 불가' ? `확인 불가 · ${config.detail}` : `${config.text} · ${config.detail}` : loading ? '조회 중' : '확인 불가', 'muted'));
+    network.append(make('p', '연결 상태: 확인 불가 · 제공 API에서 연결 상태를 제공하지 않음', 'muted'));
+    cards.append(network);
     for (const [key, title] of [['firewall', 'Windows 방화벽'], ['events', 'Windows 기록']]) {
       const card = make('article', undefined, 'card pc-metric-card pc-extra-card'); card.dataset.metric = key;
       const metric = current?.metrics[key];
@@ -474,8 +475,7 @@ function createPcDashboard(api, onChange) {
       const value = make('div', undefined, key === 'firewall' ? 'pc-extra-value pc-firewall-values' : 'pc-extra-value');
       if (key === 'firewall' && metric?.profiles) {
         for (const profile of metric.profiles) {
-          const split = profile.lastIndexOf(' '), row = make('span', undefined, 'pc-firewall-row');
-          row.append(make('span', `${profile.slice(0, split)} `), make('span', profile.slice(split + 1)));
+          const row = make('div', profile, 'pc-firewall-row');
           value.append(row);
         }
       } else value.textContent = metric ? metric.text : loading ? '조회 중' : '확인 불가';
@@ -494,6 +494,30 @@ function createPcDashboard(api, onChange) {
 export function createStudentView({ api, onChange = () => {} } = {}) {
   const renderPcDashboard = createPcDashboard(api, onChange);
   let diagnosticsExpanded = true;
+  // 제공 카드의 노드와 이벤트는 유지한 채 학생 우선 배치에서 읽기 순서만 조정한다.
+  function arrangeProvidedCards() {
+    const view = document.getElementById?.('view-protection');
+    const studentIdentity = document.getElementById?.('student-identity')?.parentElement;
+    const providedIdentity = document.getElementById?.('identity-title')?.parentElement;
+    const identityGrid = studentIdentity?.parentElement;
+    if (identityGrid && providedIdentity?.parentElement === identityGrid
+      && identityGrid.classList?.contains('grid-2')) {
+      identityGrid.classList.add('student-identity-stack');
+      if (identityGrid.firstElementChild !== studentIdentity) identityGrid.insertBefore(studentIdentity, providedIdentity);
+    }
+    const studentAi = document.getElementById?.('student-ai-connection')?.parentElement;
+    const aiConnect = document.getElementById?.('ai-connect-card');
+    const aiCheck = document.getElementById?.('ai-connection-card');
+    if (!view || studentAi?.parentElement !== view) return;
+    if (aiConnect?.parentElement === view) view.insertBefore(aiConnect, studentAi);
+    if (aiCheck?.parentElement === view) view.insertBefore(aiCheck, studentAi.nextSibling);
+  }
+  arrangeProvidedCards();
+  if (typeof MutationObserver === 'function') {
+    const observer = new MutationObserver(arrangeProvidedCards);
+    observer.observe(document.documentElement, {attributes: true, attributeFilter: ['data-appearance-preset']});
+    window.addEventListener('pagehide', () => observer.disconnect(), {once: true});
+  }
   return {
     renderIdentity({ me, devices, sessions }) {
       const root = document.createElement('div');
@@ -909,9 +933,9 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       renderList();
       return root;
     },
-    renderStatus({ notifications, diagnostics } = {}) {
+    renderStatus({ notifications, diagnostics, sessions, mode } = {}) {
       const root = document.createElement('section');
-      root.append(renderPcDashboard());
+      root.append(renderPcDashboard({sessions, mode}));
       const appendText = (parent, tag, text) => {
         const node = document.createElement(tag);
         node.textContent = String(text);

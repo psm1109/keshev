@@ -149,6 +149,16 @@ $info.UseShellExecute = $false
 $info.Arguments = '"' + $server + '"' + $(if ($Demo) { ' --demo' } else { '' }) + $nativeArgument + $sdpArgument
 $secret = '(?i)(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|API_?KEY|PRIVATE_?KEY|ACCESS_?KEY|^ON_AI_|^OPENAI|^ANTHROPIC|^SUPABASE)'
 foreach ($name in @($info.EnvironmentVariables.Keys)) { if ($name -match $secret) { $info.EnvironmentVariables.Remove($name) } }
+# Node가 Windows PowerShell을 실행할 때 PowerShell 7 모듈 경로를 물려주면
+# Get-WinEvent 등의 기본 명령 자동 로드가 실패한다. 이 서버 실행에만 Windows PowerShell 경로를 전달한다.
+if ($env:OS -eq 'Windows_NT') {
+  $windowsModules = @(
+    (Join-Path $env:USERPROFILE 'Documents\WindowsPowerShell\Modules')
+    (Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')
+    (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules')
+  )
+  $info.EnvironmentVariables['PSModulePath'] = $windowsModules -join ';'
+}
 $info.EnvironmentVariables['ON_PORT'] = [string]$Port
 if ($Background) {
   $info.CreateNoWindow = $true
