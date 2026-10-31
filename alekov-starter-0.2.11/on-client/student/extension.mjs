@@ -604,6 +604,8 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       '#student-provided-boundary { margin: 32px 0 18px; padding: 20px 4px 0; border-top: 3px solid var(--border); }',
       '#student-provided-boundary h2 { margin: 0 0 6px; font-size: 1.1rem; }',
       '#student-provided-boundary p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.7; }',
+      '#view-protection > #student-provided-boundary, #view-protection > #student-provided-boundary ~ .provided, #view-protection > #student-provided-boundary ~ #pc-status, #view-protection > #student-provided-boundary ~ .grid-2:not(:has(.student)) { display: none; }',
+      '#view-apps > .provided, #view-apps > .grid-2:not(:has(.student)), #view-records > .provided, #view-records > .grid-2:not(:has(.student)) { display: none; }',
       '.view > .grid-2:has(> .card.student) { grid-template-columns: minmax(0, 1fr); }',
       '.student-identity-view > .student-info-actions { grid-column: 1 / -1; }',
       '.student-info-view { min-width: 0; line-height: 1.65; word-break: keep-all; overflow-wrap: anywhere; }',
