@@ -70,7 +70,7 @@ function setup(sdpData = {state: 'unavailable', reason: 'adapter_unconfigured'})
     graph: key => {const card = find(node => node.dataset?.indicator === key); return all(card).find(node => node.localName === 'svg');},
     button: () => find(node => node.className?.includes('pc-refresh')),
     checkbox: () => find(node => node.dataset?.pcAutoRefresh !== undefined),
-    status: () => find(node => node.getAttribute?.('role') === 'status'),
+    status: () => find(node => node.id === 'pc-measurement-status'),
     indicators: () => find(node => node.id === 'pc-indicators'),
     advance(ms) {now += ms;},
     renderMode: mode => render(mode),
@@ -99,6 +99,77 @@ test('refresh retains values and graph nodes, then changes the existing meter in
   assert.equal(all(graph).filter(node => node.localName === 'circle').length, 2);
   const retry = ui.button().fire('click'); ui.finish(2, 40); await retry;
   assert.equal(ui.indicators().hidden, false);
+});
+
+test('refresh blocks repeated events during initial and subsequent requests and enables retry after failure', async () => {
+  const ui = setup(); await flush();
+  assert.equal(ui.button().disabled, true);
+  assert.equal(ui.button().getAttribute('aria-disabled'), 'true');
+  for (let i = 0; i < 5; i++) ui.button().fire('click');
+  assert.equal(ui.requests.length, 1);
+  ui.finish(0); await flush();
+  assert.equal(ui.button().disabled, false);
+  const pending = ui.button().fire('click');
+  for (let i = 0; i < 5; i++) ui.button().fire('click');
+  assert.equal(ui.requests.length, 2, 'read guard also rejects directly dispatched events');
+  ui.requests[1]({ok: false, error: {code: 'NETWORK_ERROR'}}); await pending;
+  assert.equal(ui.button().disabled, false);
+  assert.equal(ui.button().getAttribute('aria-disabled'), 'false');
+  assert.match(ui.status().textContent, /이전 측정값 표시.*원인: 앱 서버 연결 실패.*다음 행동: 앱 서버를 실행한 뒤 다시 조회하세요/);
+  const retry = ui.button().fire('click');
+  assert.equal(ui.requests.length, 3);
+  ui.advance(1000); ui.finish(2, 40); await retry;
+  assert.equal(ui.button().disabled, false);
+  assert.doesNotMatch(ui.status().textContent, /다시 조회 실패|원인:/);
+});
+
+test('PC query failures explain a safe cause and next action for each supported error', async () => {
+  for (const [code, reason, action] of [
+    ['TIMEOUT', '조회 시간 초과', '앱 서버 상태를 확인하고 다시 조회하세요'],
+    ['REQUEST_TIMEOUT', '조회 시간 초과', '앱 서버 상태를 확인하고 다시 조회하세요'],
+    ['NETWORK_ERROR', '앱 서버 연결 실패', '앱 서버를 실행한 뒤 다시 조회하세요'],
+    ['INVALID_RESPONSE', '응답 형식 또는 측정 시각 확인 불가', '앱 서버 상태를 확인하고 다시 조회하세요'],
+    ['ORIGIN_REJECTED', '조회 주소 확인 불가', '앱의 로컬 주소로 다시 접속하세요'],
+    ['HOST_REJECTED', '조회 주소 확인 불가', '앱의 로컬 주소로 다시 접속하세요'],
+    ['CANCELLED', '조회 취소', '다시 조회하세요'],
+    ['REQUEST_CANCELLED', '조회 취소', '다시 조회하세요'],
+    ['unexpected-secret-code', '서버 응답 또는 연결 확인 불가', '앱 서버 상태를 확인하고 다시 조회하세요'],
+  ]) {
+    const ui = setup(); await flush();
+    ui.requests[0]({ok: false, error: {code, message: 'token=must-not-appear'}}); await flush();
+    assert.ok(ui.status().textContent.includes(`원인: ${reason}`), code);
+    assert.ok(ui.status().textContent.includes(`다음 행동: ${action}`), code);
+    assert.doesNotMatch(ui.status().textContent, /must-not-appear|unexpected-secret-code/);
+    assert.equal(ui.button().disabled, false, code);
+  }
+});
+
+test('missing measurements clear overload notices and require a new consecutive sequence', async () => {
+  const ui = setup(); await flush(); ui.finish(0, 90, true, 90); await flush();
+  const notice = key => all(ui.card(key)).find(node => node.className === 'pc-overload-notice');
+  const refresh = async (cpu, memory) => {
+    const pending = ui.button().fire('click'); ui.advance(1000); ui.finish(ui.requests.length - 1, cpu, true, memory); await pending;
+  };
+  await refresh(90, 90); await refresh(90, 90);
+  assert.equal(ui.card('cpu').dataset.overload, 'sustained');
+  await refresh(null, null);
+  for (const key of ['cpu', 'memory']) {
+    assert.equal(ui.card(key).dataset.overload, 'unavailable');
+    assert.equal(notice(key).hidden, true);
+    assert.doesNotMatch(notice(key).textContent, /높은 사용량|계속 높습니다/);
+  }
+  await refresh(90, 90);
+  assert.equal(ui.card('cpu').dataset.overload, 'elevated');
+  assert.equal(notice('cpu').hidden, false);
+  await refresh(20, 20);
+  assert.equal(notice('cpu').hidden, true);
+});
+
+test('malformed network configuration shows a fallback reason without undefined', async () => {
+  const ui = setup(); await flush();
+  ui.finish(0, 20, true, 50, undefined, {network: {state: 'unavailable'}}); await flush();
+  assert.match(ui.card('network').textContent, /확인 불가.*응답 값 확인 불가.*다시 조회/);
+  assert.doesNotMatch(ui.card('network').textContent, /undefined|null/);
 });
 
 test('disk card shows remaining capacity and does not invent a value when unavailable', async () => {
@@ -168,7 +239,7 @@ test('PC configuration, firewall and Windows counts distinguish partial and unav
 test('failed refresh keeps the last measured value with an explicit failure; partial data replaces it', async () => {
   const ui = setup(); await flush(); ui.finish(0); await flush();
   let pending = ui.button().fire('click'); ui.finish(1, 0, false); await pending;
-  assert.match(ui.card('cpu').textContent, /사용 20.0%/); assert.match(ui.status().textContent, /갱신 실패 · 마지막 측정값 유지/);
+  assert.match(ui.card('cpu').textContent, /사용 20.0%/); assert.match(ui.status().textContent, /다시 조회 실패 · 이전 측정값 표시/);
   pending = ui.button().fire('click'); assert.match(ui.card('cpu').textContent, /사용 20.0%/);
   ui.finish(2, null); await pending;
   assert.match(ui.card('cpu').textContent, /확인 불가/); assert.doesNotMatch(ui.card('cpu').textContent, /사용 20.0%/);

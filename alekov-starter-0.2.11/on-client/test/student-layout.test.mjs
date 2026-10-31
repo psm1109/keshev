@@ -5,7 +5,7 @@ import vm from 'node:vm';
 
 const source = readFileSync(new URL('../student/extension.mjs', import.meta.url), 'utf8').replace('export function createStudentView', 'function createStudentView');
 const all = node => [node, ...node.children.flatMap(all)];
-function setup({loadDiagnostics = () => {}} = {}) {
+function setup({loadDiagnostics = () => {}, diagnosticButton, refreshButton} = {}) {
   class Element {
     constructor(name) {this.localName = name; this.children = []; this.dataset = {}; this.attributes = {}; this.events = {}; this.className = ''; this._text = '';}
     set textContent(value) {this._text = String(value); this.children = [];}
@@ -15,13 +15,27 @@ function setup({loadDiagnostics = () => {}} = {}) {
     addEventListener(name, fn) {this.events[name] = fn;}
   }
   const document = {hidden: false, createElement: name => new Element(name), createElementNS: (_, name) => new Element(name), addEventListener() {},
-    getElementById: id => id === 'diag-load' ? {disabled: false, click: loadDiagnostics} : null};
+    getElementById: id => id === 'diag-load' ? diagnosticButton === undefined ? {disabled: false, click: loadDiagnostics} : diagnosticButton
+      : id === 'refresh' ? refreshButton ?? null : null};
   let copied;
   const context = vm.createContext({document, window: {addEventListener() {}}, navigator: {clipboard: {writeText: async text => {copied = text;}}},
     queueMicrotask() {}, setTimeout() {}, clearTimeout() {}, Date, console});
   vm.runInContext(source, context);
   return {view: context.createStudentView(), copied: () => copied};
 }
+
+test('identity refresh uses the shared lookup once and blocks a second click while it is busy', () => {
+  let calls = 0;
+  const refreshButton = {disabled: false, click() {calls++; this.disabled = true;}};
+  const {view} = setup({refreshButton});
+  const resource = {status: 'error', mode: 'disconnected', error: {code: 'OFFLINE', message: '연결 없음'}};
+  const root = view.renderIdentity({me: resource, devices: resource, sessions: resource});
+  const button = all(root).find(node => node.localName === 'button' && node.textContent === '로그인·기기·세션 다시 조회');
+  button.events.click(); button.events.click();
+  assert.equal(calls, 1); assert.equal(button.disabled, true);
+  const busy = view.renderIdentity({me: resource, devices: resource, sessions: resource});
+  assert.match(busy.textContent, /상단 조회가 진행 중/);
+});
 
 test('only identical notification codes and messages are grouped; resources and codes remain visible in details', () => {
   const {view} = setup();
@@ -105,4 +119,53 @@ test('loaded diagnostics can be closed and reopened without another request', ()
   const idle = view.renderStatus({notifications: [], diagnostics: {status: 'idle'}});
   const idleToggle = all(idle).find(node => node.attributes['aria-controls'] === 'student-diagnostics-details');
   assert.equal(idleToggle.disabled, true); assert.equal(idleToggle.children[0].textContent, '도움정보'); assert.equal(idleToggle.children[1].hidden, true);
+});
+
+test('malformed nested diagnostics cannot be copied and never crash the view', async () => {
+  const valid = {requestId: 'r1', component: 'engine', version: '1', checkedAt: 'now', engine: {mode: 'demo', code: 'OK'}};
+  for (const data of [null, [], {}, {...valid, engine: null}, {...valid, engine: []}, {...valid, engine: {mode: 'demo'}}, {...valid, engine: {mode: {}, code: 'OK'}}, {...valid, requestId: 42}]) {
+    const {view, copied} = setup();
+    const root = view.renderStatus({notifications: [], diagnostics: {status: 'ok', data}});
+    assert.match(root.textContent, /응답 구조가 올바르지 않아 복사할 수 없습니다/);
+    const copy = all(root).find(node => node.localName === 'button' && node.textContent === '도움정보 복사');
+    assert.equal(copy.disabled, true); await copy.events.click(); assert.equal(copied(), undefined);
+  }
+});
+
+test('diagnostics explains missing or disabled provided lookup even when details were collapsed', () => {
+  for (const diagnosticButton of [null, {disabled: true}]) {
+    const {view} = setup({diagnosticButton});
+    const root = view.renderStatus({diagnostics: {status: 'ok', data: {requestId: 'r1', component: 'engine', version: '1', checkedAt: 'now', engine: {mode: 'demo', code: 'OK'}}}});
+    const details = all(root).find(node => node.id === 'student-diagnostics-details');
+    const toggle = all(root).find(node => node.attributes['aria-label'] === '도움정보 접기');
+    toggle.events.click(); assert.equal(details.hidden, true);
+    all(root).find(node => node.localName === 'button' && node.textContent === '도움정보 불러오기').events.click();
+    assert.equal(details.hidden, false);
+    assert.match(details.textContent, diagnosticButton ? /현재 도움정보 조회 버튼을 사용할 수 없습니다.*다시 시도/ : /조회 버튼을 찾을 수 없습니다.*새로고침/);
+  }
+});
+
+test('records identify connected and demo data and retry using the real shared refresh button', () => {
+  let calls = 0;
+  const {view} = setup({refreshButton: {disabled: false, click() {calls++;}}});
+  const root = view.renderEvents({status: 'error', mode: 'connected', error: {message: '연결 확인 실패'}});
+  assert.match(root.textContent, /기록 자료 연결됨.*실제 업무 앱 접속 성공을 뜻하지 않습니다/);
+  const retry = all(root).find(node => node.localName === 'button' && node.textContent === '기록 다시 불러오기');
+  retry.events.click(); assert.equal(calls, 1); assert.equal(retry.disabled, true);
+  assert.match(view.renderEvents({status: 'ok', mode: 'demo', data: []}).textContent, /예제 자료.*실제 본인 기록이 아닙니다/);
+  for (const refreshButton of [null, {disabled: true}]) {
+    const blocked = setup({refreshButton}).view.renderEvents({status: 'error'});
+    all(blocked).find(node => node.localName === 'button' && node.textContent === '기록 다시 불러오기').events.click();
+    assert.match(blocked.textContent, refreshButton ? /전체 조회가 진행 중.*완료된 뒤/ : /버튼을 찾을 수 없습니다.*새로고침/);
+  }
+});
+
+test('vulnerability mode distinguishes example data from engine connection and OSV query scope', () => {
+  const {view} = setup();
+  const data = {status: 'complete', checkedAt: '2026-10-31T00:00:00Z', packages: []};
+  const demo = view.renderVulnerabilities({status: 'ok', mode: 'demo', data});
+  assert.match(demo.textContent, /예제 자료.*실제 설치 패키지.*자료 구분: 예제 응답/);
+  const disconnected = view.renderVulnerabilities({status: 'ok', mode: 'disconnected', data});
+  assert.match(disconnected.textContent, /엔진 연결 없음.*자료 구분: 조회 응답.*패키지별 출처와 확인 시각/);
+  assert.match(view.renderVulnerabilities({status: 'idle', mode: 'unknown'}).textContent, /실행 상태: 확인 불가.*조회 전/);
 });
