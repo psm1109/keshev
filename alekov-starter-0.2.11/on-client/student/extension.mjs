@@ -17,6 +17,10 @@ function createPcDashboard(api, onChange) {
       '[data-student-dashboard] .pc-metric-card .pc-capacity-part, [data-student-dashboard] .pc-network-status { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }',
       '[data-student-dashboard] .pc-metric-card .pc-capacity-part > strong, [data-student-dashboard] .pc-network-status > strong { white-space: nowrap; color: var(--text); }',
       '[data-student-dashboard] .pc-network-reason { font-size: 12px; line-height: 1.5; }',
+      '[data-student-dashboard] .pc-text-line { display: block; white-space: nowrap; }',
+      '[data-student-dashboard] .pc-overload-notice:not([hidden]) { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: start; gap: 0 4px; font-size: 12px; line-height: 1.6; }',
+      '[data-student-dashboard] .pc-overload-copy { display: flex; flex-wrap: wrap; gap: 0 8px; }',
+      '[data-student-dashboard] .pc-overload-copy > span { white-space: nowrap; }',
       '[data-student-dashboard] .pc-metric-card .pc-network-counts, [data-student-dashboard] .pc-metric-card .pc-event-counts { display: flex; flex-wrap: wrap; gap: 2px 8px; }',
       '[data-student-dashboard] .pc-metric-card .pc-network-counts > span, [data-student-dashboard] .pc-metric-card .pc-event-counts > span { white-space: nowrap; }',
       '[data-student-dashboard] .pc-metric-card > h4 { margin: 0 0 6px; }',
@@ -62,13 +66,6 @@ function createPcDashboard(api, onChange) {
       '[data-student-dashboard] .pc-combined-times > :only-child { margin: auto; }',
       '[data-student-dashboard] .pc-dashboard-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }',
       '[data-student-dashboard] .pc-dashboard-heading h3, [data-student-dashboard] .pc-dashboard-heading .pc-sdp-status { margin: 0; }',
-      '#student-core-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }',
-      '#student-core-nav .student-core-entry { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left; white-space: normal; }',
-      '#student-core-nav .student-core-entry span { color: var(--muted); font-size: 0.85rem; }',
-      '#student-core-nav .student-core-feedback, #student-core-nav .student-core-evidence { grid-column: 1 / -1; margin: 0; }',
-      '#student-core-nav .student-core-feedback:empty { display: none; }',
-      '#student-core-nav :focus-visible, [data-student-dashboard] :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }',
-      '@media (max-width: 700px) { #student-core-nav { grid-template-columns: minmax(0, 1fr); } }',
       '@media (max-width: 600px) { [data-student-dashboard] .pc-metrics-grid > .pc-metric-card { flex-basis: 85%; min-width: 0; } }'
     ];
     try {
@@ -402,7 +399,8 @@ function createPcDashboard(api, onChange) {
   function evidenceSection(stale) {
     const section = make('section', undefined, 'card pc-evidence-section'); section.id = 'pc-evidence-section';
     section.tabIndex = -1;
-    section.append(make('h3', '이상 징후 근거'));
+    const evidenceHeading = make('h3', '이상 징후 근거 ');
+    evidenceHeading.append(make('span', '학생 구현', 'tag tag-student')); section.append(evidenceHeading);
     const status = make('p', !current ? phase === 'error' ? '조회 실패 · 확인 불가' : '조회 전 · 확인 불가'
       : `${phase === 'error' ? '갱신 실패 · 이전 조회' : stale ? '오래된 조회' : 'PC 실측'} · ${time(current.measuredAt)} (한국 시간)`, 'muted');
     status.textContent += ' · 침해 판정 아님';
@@ -460,7 +458,9 @@ function createPcDashboard(api, onChange) {
     const sdpBadge = make('span', sdpText, 'mode-badge pc-sdp-status');
     sdpBadge.dataset.mode = sdpText === 'SDP 연결됨' ? 'connected' : sdpText === 'SDP 미연결' ? 'disconnected' : 'unknown';
     sdpBadge.setAttribute('role', 'status');
-    heading.append(make('h3', '내 PC 상태 대시보드'), sdpBadge);
+    const dashboardHeading = make('h3', '내 PC 상태 대시보드 ');
+    dashboardHeading.append(make('span', '학생 구현', 'tag tag-student'));
+    heading.append(dashboardHeading, sdpBadge);
     dashboard.append(heading);
     dashboard.append(make('p', '이 값은 앱 서버를 실행한 PC에서 측정합니다. 네트워크·방화벽·Windows 기록은 조회만 하며 설정을 변경하지 않습니다.', 'muted'));
     dashboard.append(make('p', current ? '자료 구분: PC 실측 · 예시 값이 아닙니다.' : '자료 구분: PC 실측 조회 대기 · 예시 수치로 대신 표시하지 않습니다.', 'muted'));
@@ -546,10 +546,12 @@ function createPcDashboard(api, onChange) {
           const showNotice = !outdated && usable && finite(metric.value) && metric.value >= overloadThreshold && count > 0;
           notice.hidden = !showNotice;
           const icon = make('span', '⚠'); icon.setAttribute('aria-hidden', 'true');
-          const message = !showNotice ? ''
-            : count >= overloadReadings ? `${titles[key]} 사용량이 계속 높습니다.`
-            : `높은 사용량 감지 (${overloadThreshold}% 이상)`;
-          notice.append(icon, make('span', message)); card.append(notice);
+          const copy = make('span', undefined, 'pc-overload-copy');
+          if (showNotice) {
+            copy.append(make('span', count >= overloadReadings ? '높은 사용량 지속' : '높은 사용량 감지'),
+              make('span', count >= overloadReadings ? `${overloadThreshold}% 이상 · 연속 ${count}회` : `기준: ${overloadThreshold}% 이상`));
+          }
+          notice.append(icon, copy); card.append(notice);
         }
         cards.append(card);
     }
@@ -563,9 +565,6 @@ function createPcDashboard(api, onChange) {
       network.append(counts);
       network.append(make('p', configDetail, 'muted'));
     } else network.append(make('p', config ? `확인 불가 · ${configDetail} · ${nextAction(configDetail)}` : loading ? '조회 중' : '확인 불가', 'muted'));
-    const connection = make('p', undefined, 'muted pc-network-status');
-    connection.append(make('span', '연결 상태'), make('strong', '확인 불가'));
-    network.append(connection, make('p', '제공 API에 연결 상태 정보가 없음', 'muted pc-network-reason'));
     cards.append(network);
     for (const [key, title] of [['firewall', 'Windows 방화벽'], ['events', 'Windows 기록']]) {
       const card = make('article', undefined, 'card pc-metric-card pc-extra-card'); card.dataset.metric = key;
@@ -584,8 +583,16 @@ function createPcDashboard(api, onChange) {
         for (const part of metric.text.split(' · ')) value.append(make('span', part));
       } else value.textContent = metric ? metric.text : loading ? '조회 중' : '확인 불가';
       const detail = make('p', metric?.text === '확인 불가' ? `${metric.detail} · ${nextAction(metric.detail)}` : metric?.detail || '', 'muted pc-extra-detail');
+      if (key === 'events' && metric?.text !== '확인 불가' && metric?.detail) {
+        detail.textContent = '';
+        for (const part of metric.detail.split(' · ')) detail.append(make('span', part, 'pc-text-line'));
+      }
       card.append(value, detail);
-      if (key === 'events') card.append(make('p', '이 건수는 침해나 공격 탐지 결과가 아닙니다.', 'muted pc-extra-disclaimer'));
+      if (key === 'events') {
+        const disclaimer = make('p', undefined, 'muted pc-extra-disclaimer');
+        disclaimer.append(make('span', '이 건수는 침해나 공격 탐지', 'pc-text-line'), make('span', '결과가 아닙니다.', 'pc-text-line'));
+        card.append(disclaimer);
+      }
       cards.append(card);
     }
     dashboard.append(cards);
@@ -596,11 +603,42 @@ function createPcDashboard(api, onChange) {
 }
 
 export function createStudentView({ api, onChange = () => {} } = {}) {
+  const validTimestamp = value => {
+    if (typeof value !== 'string') return false;
+    const m = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/);
+    if (!m) return false;
+    const [, year, month, day, hour, minute, second, zone] = m;
+    const leap = +year % 4 === 0 && (+year % 100 !== 0 || +year % 400 === 0);
+    const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    return +month >= 1 && +month <= 12 && +day >= 1 && +day <= days[+month - 1]
+      && +hour < 24 && +minute < 60 && +second < 60
+      && (zone === 'Z' || +zone.slice(1, 3) < 24 && +zone.slice(4) < 60) && Number.isFinite(Date.parse(value));
+  };
+  const aiErrorText = code => ({
+    WB_CLCO_AUTH_REQUIRED: 'AI 이용에 필요한 인증을 확인할 수 없습니다.',
+    WB_CLCO_ACCESS_BLOCKED: 'AI 앱 접근 권한을 확인할 수 없습니다.',
+    ON_AI_PROVISIONING_PENDING: 'AI 계정 또는 앱 권한 준비가 완료되지 않았습니다.',
+    WB_CLCO_RATE_LIMITED: 'AI 요청 한도에 도달했습니다. 잠시 후 다시 시도하세요.',
+    WB_CLCO_TIMEOUT: 'AI 응답 대기 시간이 초과되었습니다.',
+    TIMEOUT: 'AI 응답 대기 시간이 초과되었습니다.',
+    ON_AI_INVALID_OUTPUT: 'AI 응답이 표시 조건을 충족하지 않습니다.',
+  }[code] || 'AI 요청을 완료하지 못했습니다. 오류 코드와 연결·권한 상태를 확인하세요.');
   const renderPcDashboard = createPcDashboard(api, onChange);
   // 학생 정보 영역에만 적용한다. PC 대시보드와 제공 공통 화면은 대상에서 제외한다.
   const infoSheet = [...(document.styleSheets || [])].find(item => item.href?.endsWith('/student/appearance.css'));
   if (infoSheet) {
     const rules = [
+      'html { scroll-padding-top: calc(var(--student-topbar-height, 76px) + 16px); }',
+      '.layout > main#main { max-width: none; width: 100%; }',
+      'body > .topbar { position: sticky; top: 0; z-index: 30; background: var(--surface); }',
+      'body > .topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px 24px; padding: 12px 24px; }',
+      '.topbar > .brand { justify-self: start; }',
+      '.topbar .brand-name small { display: block; margin: 2px 0 0; font-size: 11px; }',
+      '.topbar > .topbar-status { justify-self: end; display: grid; grid-template-columns: auto auto; align-items: center; gap: 4px 10px; }',
+      '.topbar .topbar-status .checked-at { grid-column: 1 / -1; grid-row: 2; text-align: right; font-size: 11px; }',
+      '.topbar .topbar-status > .btn { min-height: 36px; padding: 7px 12px; }',
+      '.layout > .sidebar { position: sticky; top: var(--student-topbar-height, 76px); align-self: start; height: calc(100dvh - var(--student-topbar-height, 76px)); overflow-y: auto; }',
+      '@media (max-width: 700px) { .layout > .sidebar { height: auto; max-height: 35dvh; z-index: 20; } }',
       '#student-provided-boundary { margin: 32px 0 18px; padding: 20px 4px 0; border-top: 3px solid var(--border); }',
       '#student-provided-boundary h2 { margin: 0 0 6px; font-size: 1.1rem; }',
       '#student-provided-boundary p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.7; }',
@@ -608,6 +646,12 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       '#view-apps > .provided, #view-apps > .grid-2:not(:has(.student)), #view-records > .provided, #view-records > .grid-2:not(:has(.student)) { display: none; }',
       '.view > .grid-2:has(> .card.student) { grid-template-columns: minmax(0, 1fr); }',
       '.student-identity-view > .student-info-actions { grid-column: 1 / -1; }',
+      '.student-info-view .student-info-actions + p:empty { display: none; }',
+      '.card.student { border-width: 1px; border-style: solid; border-color: color-mix(in srgb, var(--student) 25%, var(--border)); }',
+      '.student-support .student-support-grid > .student-section, [data-student-dashboard] #pc-main-dashboard, .card.pc-evidence-section { border: 1px solid color-mix(in srgb, var(--student) 25%, var(--border)); }',
+      '.student-diagnostics-heading h4 > .tag-student { margin-left: 8px; vertical-align: middle; }',
+      '.card.student[aria-labelledby="student-status-title"] { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }',
+      '.card.student[aria-labelledby="student-status-title"] > h2 { display: none; }',
       '.student-info-view { min-width: 0; line-height: 1.65; word-break: keep-all; overflow-wrap: anywhere; }',
       '.student-info-view > h3 { margin: 0 0 12px; }',
       '.student-info-view h4 { margin: 20px 0 8px; }',
@@ -650,65 +694,110 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       '@media (max-width: 700px) { .student-support .student-diagnostics-layout { grid-template-columns: minmax(0, 1fr); } }',
       '.student-info-view :focus-visible, .student-support :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }',
       '@media (max-width: 900px) { .student-identity-view { grid-template-columns: minmax(0, 1fr); } }',
+      // Giga의 기기 패널 표현을 참고한다. 색상 변수와 배치·크기는 유지한다.
+      'body .btn { border-radius: 7px; box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 85%, white), 0 2px 0 var(--border), 0 4px 8px color-mix(in srgb, var(--text) 7%, transparent); }',
+      'body .btn:hover:not(:disabled) { border-color: var(--accent); box-shadow: inset 0 1px 0 var(--surface), 0 2px 0 var(--border), 0 4px 10px color-mix(in srgb, var(--text) 12%, transparent); }',
+      'body .btn:active:not(:disabled) { box-shadow: inset 0 2px 4px color-mix(in srgb, var(--text) 12%, transparent); }',
+      'body .btn:disabled { box-shadow: none; }',
+      '.card { border-radius: 10px; box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 85%, white), 0 2px 5px color-mix(in srgb, var(--text) 4%, transparent); }',
+      '[data-student-dashboard] .pc-metric-card, [data-student-dashboard] .pc-detail-panel, .student-support .student-section, .student-info-view .student-section { border-radius: 10px; box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 85%, white), 0 1px 3px color-mix(in srgb, var(--text) 4%, transparent); }',
+      '#nav [role="tab"] { border-radius: 7px; }',
+      '#nav [role="tab"][aria-selected="true"] { box-shadow: inset 0 0 0 1px var(--border), 0 2px 3px color-mix(in srgb, var(--text) 5%, transparent); }',
+      'body > .topbar { box-shadow: 0 3px 10px color-mix(in srgb, var(--text) 6%, transparent); }',
+      'main > .view > h1 { font-family: ui-monospace, Consolas, "Malgun Gothic", "Apple SD Gothic Neo", monospace; font-weight: 600; letter-spacing: -0.02em; }',
+      '[data-student-dashboard] .pc-metric-value, [data-student-dashboard] .pc-capacity-part > strong, .student-diagnostics-info { font-variant-numeric: tabular-nums; }',
+      '.student-support .student-diagnostics-console { border-radius: 8px; box-shadow: inset 0 2px 8px rgb(0 0 0 / 18%); }',
+      'html[data-student-theme="dark"] { color-scheme: dark; --bg: #0b0c0c; --surface: #111313; --text: #ededed; --muted: #a1a6a6; --border: #292c2c; --accent: #9dbcec; --accent-soft: #1b2027; --student: #baa2ed; --student-soft: #211c2c; --allow: #78d5ae; --allow-soft: #12271e; --deny: #f2a19b; --deny-soft: #2c191b; --challenge: #dfc181; --challenge-soft: #292316; --unknown: #b4baba; --unknown-soft: #1d2020; }',
+      'html[data-student-theme="dark"] body { color: var(--text); background: var(--bg); }',
+      'html[data-student-theme="dark"] body > .topbar, html[data-student-theme="dark"] .layout > .sidebar { background: #0d0f0f; }',
+      'html[data-student-theme="dark"] .student-support .student-diagnostics-console { background: #090b0b; border-color: var(--border); }',
+      '.topbar .topbar-status > #student-theme-toggle { grid-column: 3; grid-row: 1; display: grid; place-items: center; width: 36px; height: 36px; min-height: 36px; padding: 0; border-radius: 50%; font-size: 22px; line-height: 1; }',
+      'body .btn, #nav [role="tab"], .topbar .brand-name { font-family: Arial, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; font-style: normal; letter-spacing: -0.01em; -webkit-font-smoothing: antialiased; }',
+      'body .btn { font-weight: 600; }',
+      '#nav [role="tab"] { font-weight: 400; }',
+      '#nav [role="tab"][aria-selected="true"] { font-weight: 600; }',
     ];
     try { for (const rule of rules) infoSheet.insertRule(rule, infoSheet.cssRules.length); } catch { /* 스타일 적용 실패 시에도 조회와 안내는 제공한다. */ }
+    const topbar = document.querySelector?.('body > .topbar');
+    if (topbar && typeof ResizeObserver === 'function') {
+      const index = infoSheet.insertRule(':root { --student-topbar-height: 76px; }', infoSheet.cssRules.length);
+      const heightRule = infoSheet.cssRules[index];
+      const updateHeight = () => heightRule.style.setProperty('--student-topbar-height', `${Math.ceil(topbar.getBoundingClientRect().height)}px`);
+      updateHeight();
+      const observer = new ResizeObserver(updateHeight); observer.observe(topbar);
+      window.addEventListener('pagehide', () => observer.disconnect(), {once: true});
+    }
   }
   let diagnosticsExpanded = true;
-  function appendSharedAction(root, label, targetId, unavailable, resolveTarget) {
+  function appendSharedAction(root, label, targetId, unavailable, resolveTarget, {busy = false, busyLabel = '조회 중…'} = {}) {
     const actions = document.createElement('div'); actions.className = 'row student-info-actions';
     const button = document.createElement('button'); button.type = 'button'; button.className = 'btn'; button.textContent = label;
     const feedback = document.createElement('p'); feedback.className = 'muted'; feedback.setAttribute('role', 'status');
     const resolve = () => resolveTarget ? resolveTarget() : document.getElementById?.(targetId);
-    button.disabled = Boolean(resolve()?.disabled);
+    button.disabled = busy || Boolean(resolve()?.disabled);
+    if (busy) button.textContent = busyLabel;
     if (!resolve() || button.disabled) feedback.textContent = unavailable;
+    if (busy) feedback.textContent = '요청을 처리하고 있습니다. 완료될 때까지 기다려 주세요.';
     button.addEventListener?.('click', () => {
       const target = resolve();
       if (button.disabled) return;
       if (!target || target.disabled) { feedback.textContent = unavailable; return; }
+      button.disabled = true;
+      button.textContent = busyLabel;
+      feedback.textContent = '요청을 처리하고 있습니다. 완료될 때까지 기다려 주세요.';
       target.click();
-      button.disabled = Boolean(target.disabled);
+      button.disabled = 'disabled' in target;
+      if (!button.disabled) { button.textContent = label; feedback.textContent = ''; }
     });
     actions.append(button); root.append(actions, feedback);
   }
-  // 학생 바로가기를 배치하고, 현재 로그인 카드는 아래 제공 항목 구역에 모은다.
+  // 실제 PC 대시보드를 먼저 배치하고 제공 로그인 카드는 아래 구역에 모은다.
   function arrangeStudentEntry() {
     const view = document.getElementById?.('view-protection');
     if (!view) return;
-    let coreNav = document.getElementById('student-core-nav');
-    if (!coreNav) {
-      coreNav = document.createElement('nav');
-      coreNav.id = 'student-core-nav'; coreNav.className = 'pc-core-nav';
-      coreNav.setAttribute('aria-label', '핵심 기능 3가지 바로가기');
-      const feedback = document.createElement('p'); feedback.className = 'student-core-feedback';
-      feedback.setAttribute('role', 'status');
-      const entries = [
-        ['tab-protection', 'pc-main-dashboard', '1. PC 상태 모니터링', '실측 조회 · 자동 갱신 · 추이와 기록'],
-        ['tab-records', 'student-records-content', '2. 보안 기록 탐색', '접속·XDR 기록 필터와 근거 확인'],
-        ['tab-records', 'student-ai-review-content', '3. AI 설명·조치 결과 검토', '근거 대조 · 제안 검토 · 결과 상태 확인'],
-      ];
-      for (const [tabId, targetId, title, description] of entries) {
-        const button = document.createElement('button'); button.type = 'button'; button.className = 'btn student-core-entry';
-        const label = document.createElement('strong'); label.textContent = title;
-        const detail = document.createElement('span'); detail.textContent = description;
-        button.append(label, detail);
-        button.addEventListener('click', () => {
-          const tab = document.getElementById(tabId);
-          if (!tab || tab.disabled) {feedback.textContent = '이 화면으로 이동할 수 없습니다. 상단 메뉴에서 해당 화면을 확인하세요.'; return;}
-          tab.click();
-          const target = document.getElementById(targetId);
-          if (target) {target.focus(); target.scrollIntoView?.({block: 'start'});}
-          else feedback.textContent = '학생 화면을 불러오는 중입니다. 해당 메뉴에서 잠시 뒤 다시 확인하세요.';
-        });
-        coreNav.append(button);
-      }
-      const evidence = document.createElement('a'); evidence.href = '#pc-evidence-section'; evidence.textContent = '이상 징후 근거 바로가기';
-      evidence.className = 'student-core-evidence'; coreNav.append(evidence, feedback);
+    const studentHeadings = {
+      'student-status-title': 'PC 상태·알림',
+      'student-identity-title': '로그인·기기·세션',
+      'student-decision-title': '업무 앱 접근 판정',
+      'student-events-title': '보안 기록',
+      'student-ai-connection-title': 'AI 연결 점검',
+      'student-vulnerabilities-title': '패키지 취약점 조회',
+      'student-explanation-title': 'AI 사건 설명',
+      'student-action-title': '보안 조치 결과',
+    };
+    for (const [id, title] of Object.entries(studentHeadings)) {
+      const heading = document.getElementById(id);
+      if (!heading || heading.dataset.studentLabel === title) continue;
+      const badge = heading.querySelector('.tag-student');
+      if (!badge) continue;
+      heading.textContent = `${title} `;
+      badge.textContent = '학생 구현';
+      heading.append(badge);
+      heading.dataset.studentLabel = title;
+    }
+    const topbar = document.querySelector?.('body > .topbar');
+    if (topbar && !document.getElementById('student-theme-toggle')) {
+      const toggle = document.createElement('button'); toggle.type = 'button'; toggle.id = 'student-theme-toggle'; toggle.className = 'btn';
+      let dark = true;
+      try { dark = localStorage.getItem('keshev-student-theme') !== 'light'; } catch { /* 저장소 사용 불가 시 기본 다크 모드로 시작한다. */ }
+      const applyTheme = () => {
+        document.documentElement.setAttribute('data-student-theme', dark ? 'dark' : 'light');
+        toggle.textContent = dark ? '☀' : '☾';
+        toggle.setAttribute('aria-label', dark ? '밝은 모드로 전환' : '다크 모드로 전환');
+        toggle.title = dark ? '밝은 화면으로 전환' : '어두운 화면으로 전환';
+      };
+      applyTheme();
+      toggle.addEventListener('click', () => {
+        dark = !dark; applyTheme();
+        try { localStorage.setItem('keshev-student-theme', dark ? 'dark' : 'light'); } catch { /* 저장 실패는 전환을 막지 않는다. */ }
+      });
+      (topbar.querySelector('.topbar-status') || topbar).append(toggle);
     }
     const heading = [...view.children].find(node => node.tagName === 'H1');
-    if (heading && heading.nextElementSibling !== coreNav) view.insertBefore(coreNav, heading.nextElementSibling);
+
     const studentDashboard = document.getElementById('student-status')?.parentElement;
     if (studentDashboard?.parentElement === view && studentDashboard.classList.contains('student')
-      && coreNav.nextElementSibling !== studentDashboard) view.insertBefore(studentDashboard, coreNav.nextElementSibling);
+      && heading && heading.nextElementSibling !== studentDashboard) view.insertBefore(studentDashboard, heading.nextElementSibling);
     const loginCard = document.getElementById('identity-title')?.parentElement;
     const providedDiagnostics = document.getElementById('diag-title')?.parentElement;
     if (loginCard?.classList.contains('provided') && providedDiagnostics?.parentElement === view
@@ -861,7 +950,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       }
       root.append(sessionsSection);
 
-      appendSharedAction(root, '로그인·기기·세션 다시 조회', 'refresh', '상단 조회가 진행 중이면 완료 후 다시 시도하세요. 조회 버튼이 없으면 앱 화면을 새로고침하세요.');
+      appendSharedAction(root, '로그인·기기·세션 다시 조회', 'refresh', '상단 조회가 진행 중이면 완료 후 다시 시도하세요. 조회 버튼이 없으면 앱 화면을 새로고침하세요.', null, {busy: [me, devices, sessions].some(item => item.status === 'loading')});
 
       return root;
     },
@@ -878,10 +967,27 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
         typeof value === 'string' && value.length > 0 ? value : fallback;
 
       appendText('h3', '업무 앱 접근 판정');
-      appendSharedAction(root, '업무 앱 선택으로 이동', 'apps-title', '업무 앱 메뉴에서 접속 요청할 앱을 선택하세요.', () => {
-        const section = document.getElementById('apps-title');
-        return section ? {click: () => {section.scrollIntoView?.({block: 'start'}); const button = document.getElementById('apps')?.querySelector('button'); button?.focus();}} : null;
-      });
+      const appButtons = () => [...(document.getElementById?.('apps')?.querySelectorAll?.('.app-button') || [])];
+      const availableApps = appButtons();
+      const choices = document.createElement('div'); choices.className = 'row student-info-actions';
+      choices.setAttribute('role', 'group'); choices.setAttribute('aria-label', '업무 앱 선택과 접속 요청');
+      for (const source of availableApps) {
+        const id = source.getAttribute('data-app-id');
+        if (!id) continue;
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'btn';
+        button.textContent = status === 'loading' && appId === id ? '접속 판정 조회 중…' : source.textContent;
+        button.disabled = status === 'loading' || source.disabled;
+        button.addEventListener('click', () => {
+          const target = appButtons().find(item => item.getAttribute('data-app-id') === id);
+          if (button.disabled || !target || target.disabled) return;
+          for (const choice of choices.children) choice.disabled = true;
+          button.textContent = '접속 판정 조회 중…'; target.click();
+        });
+        choices.append(button);
+      }
+      root.append(choices);
+      if (!availableApps.length) appendText('p', '선택할 수 있는 업무 앱을 받지 못했습니다. 연결 상태를 확인한 뒤 「업무 앱 목록 다시 조회」로 다시 불러오세요.');
+      appendSharedAction(root, '업무 앱 목록 다시 조회', 'refresh', '전체 조회가 진행 중이면 완료 후 다시 시도하세요.');
       appendText('p', '선택한 업무 앱의 정책 판정·이유·판정 시각을 확인합니다. 실제 접속 여부는 업무 앱에서 별도로 확인하세요.').className = 'student-info-lead';
       const modeLabels = {
         demo: '예제 자료(demo) · 실제 연결 결과가 아닙니다.',
@@ -965,7 +1071,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       };
 
       appendText(root, 'h3', '접속 기록·XDR 경보');
-      if (status === 'ok') appendSharedAction(root, '기록 다시 불러오기', 'refresh', '상단 전체 조회가 완료된 뒤 다시 시도하세요.');
+      if (status === 'ok' || status === 'loading') appendSharedAction(root, '기록 다시 불러오기', 'refresh', '상단 전체 조회가 완료된 뒤 다시 시도하세요.', null, {busy: status === 'loading'});
       appendText(root, 'p', '접속 판정과 보안 경보를 탐색하고, 선택한 기록의 근거를 확인합니다. PC 대시보드의 Windows 이벤트 기록과는 다른 자료입니다.').className = 'student-info-lead';
       appendText(root, 'p', modeLabels[mode] || modeLabels.unknown);
       const appendRetry = () => {
@@ -1219,7 +1325,8 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
 
       const notificationsSection = document.createElement('section');
       notificationsSection.className = 'student-section';
-      appendText(notificationsSection, 'h4', '알림');
+      const notificationHeading = appendText(notificationsSection, 'h4', '알림 ');
+      appendText(notificationHeading, 'span', '학생 구현').className = 'tag tag-student';
       appendText(notificationsSection, 'p', '같은 원인의 알림은 하나로 묶습니다. 항목을 펼치면 영향을 받은 자료와 오류 코드를 확인할 수 있습니다.').className = 'muted';
       if (Array.isArray(notifications) && notifications.length > 0) {
         const groups = new Map();
@@ -1265,7 +1372,9 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       };
       updateToggle();
       toggle.addEventListener('click', () => {diagnosticsExpanded = !diagnosticsExpanded; updateToggle();});
-      headingTitle.append(toggle); heading.append(headingTitle); diagnosticsSection.append(heading);
+      headingTitle.append(toggle);
+      appendText(headingTitle, 'span', '학생 구현').className = 'tag tag-student';
+      heading.append(headingTitle); diagnosticsSection.append(heading);
       if (diagnostics?.status !== 'ok') resourceMode(details, diagnostics);
       let safeDiagnostics = null;
       if (diagnostics?.status === 'loading') {
@@ -1378,7 +1487,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       };
 
       appendText(root, 'h3', '설치 패키지·알려진 취약점 조회');
-      appendSharedAction(root, '설치 패키지 조회', 'vulnerabilities-load', '제공 패키지 조회 기능을 현재 사용할 수 없습니다. 진행 중인 조회가 끝난 뒤 다시 시도하세요.');
+      appendSharedAction(root, status === 'idle' ? '설치 패키지 조회' : '설치 패키지 다시 조회', 'vulnerabilities-load', '제공 패키지 조회 기능을 현재 사용할 수 없습니다. 진행 중인 조회가 끝난 뒤 다시 시도하세요.', null, {busy: status === 'loading'});
       if (status === 'loading') appendSharedAction(root, '패키지 조회 취소', 'vulnerabilities-cancel', '취소할 패키지 조회가 없습니다.');
       appendText(root, 'p', '설치된 정확한 패키지 버전을 공개 취약점 자료(OSV)와 대조합니다. 조회 상태·출처·확인 시각을 함께 읽어야 결과 범위를 알 수 있습니다.').className = 'student-info-lead';
       const modeLabels = {
@@ -1529,9 +1638,6 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       ]);
       const safeCode = (value) => typeof value === 'string' && safeCodes.has(value) ? value : 'AI_REQUEST_UNVERIFIED';
       const secretPattern = /(?:Bearer\s+\S+|sk-(?:proj-|ant-|svcacct-)?[A-Za-z0-9_-]{8,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|(?:api[_ -]?key|authorization|password|secret|token|비밀번호|토큰)["']?\s*[:=]\s*\S+)/i;
-      const safeMessage = (value) => typeof value === 'string' && value.length > 0 && value.length <= 500
-        && !/[\u0000-\u0008\u000b\u000c\u000e\u001f]/.test(value) && !secretPattern.test(value)
-        ? value : '안전하게 표시할 수 있는 오류 메시지가 없습니다.';
       const modeLabels = {
         demo: '예제 자료(demo) · 실제 연결 결과가 아닙니다.',
         disconnected: '연결 없음(disconnected)',
@@ -1551,7 +1657,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       }
       if (status === 'error') {
         const code = safeCode(error?.code);
-        appendText('p', `AI 연결 점검 실패 (${code}): ${safeMessage(error?.message)}`);
+        appendText('p', `AI 연결 점검 실패 (${code}): ${aiErrorText(safeCode(error?.code))}`);
         const guidance = {
           ON_AI_PROVISIONING_PENDING: '운영 담당자에게 계정 연결과 앱 권한 발급 상태를 확인해 달라고 요청하세요. 이는 학생 코드만으로 해결할 수 있는 문제가 아닙니다.',
           ON_AI_AUTHORIZATION_CHANGED: '담당자에게 계정 연결과 앱 권한 상태를 확인해 달라고 요청하세요.',
@@ -1597,7 +1703,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
         ? '시험 연결 점검(test)'
         : '앱 권한 확인 후 점검(verified)');
       appendText('p', `응답 모델 수(modelCount): ${Number.isInteger(data.modelCount) && data.modelCount >= 0 ? data.modelCount : '확인 불가'}`);
-      appendText('p', `점검 시각(checkedAt): ${typeof checkedAt === 'string' && checkedAt ? checkedAt : '확인 불가'}`);
+      appendText('p', `점검 시각(checkedAt): ${validTimestamp(checkedAt) ? checkedAt : '확인 불가'}`);
       appendText('p', '이 결과는 연결과 모델 목록 응답만 점검했습니다. 사건 설명은 아직 실행하지 않았습니다.');
       appendText('p', '다시 점검하려면 「현재 AI 연결 점검」 버튼을 직접 누르세요. 자동으로 재점검하지 않습니다.');
       return root;
@@ -1607,7 +1713,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       root.className = 'student-view student-info-view';
       root.id = 'student-ai-review-content'; root.tabIndex = -1;
       if (event?.id) appendSharedAction(root, '선택 기록의 AI 설명 요청', null, '해당 기록의 AI 설명 요청 버튼을 사용할 수 없습니다. 기록을 다시 불러와 선택하세요.', () =>
-        [...(document.querySelectorAll?.('[data-testid]') || [])].find(node => node.getAttribute('data-testid') === `ai-explain-${event.id}`));
+        [...(document.querySelectorAll?.('[data-testid]') || [])].find(node => node.getAttribute('data-testid') === `ai-explain-${event.id}`), {busy: explanation?.status === 'loading', busyLabel: 'AI 설명 요청 중…'});
       else appendSharedAction(root, '보안 기록 선택으로 이동', 'student-records-content', '보안 기록을 먼저 불러오세요.', () => {
         const section = document.getElementById?.('student-records-content');
         return section ? {click: () => {section.focus(); section.scrollIntoView?.({block: 'start'});}} : null;
@@ -1629,9 +1735,6 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       ]);
       const safeCode = (value) => typeof value === 'string' && safeCodes.has(value) ? value : null;
       const secretPattern = /(?:Bearer\s+\S+|sk-(?:proj-|ant-|svcacct-)?[A-Za-z0-9_-]{8,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|(?:api[_ -]?key|authorization|password|secret|token|비밀번호|토큰)["']?\s*[:=]\s*\S+)/i;
-      const safeMessage = (value) => typeof value === 'string' && value.length > 0 && value.length <= 500
-        && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value) && !secretPattern.test(value)
-        ? value : '안전하게 표시할 수 있는 오류 메시지가 없습니다.';
       const showFailureCode = (code) => {
         const safe = safeCode(code);
         if (safe) appendText(root, 'p', `오류 코드: ${safe}`);
@@ -1649,7 +1752,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       if (explanation?.status === 'error') {
         const code = safeCode(explanation.error?.code);
         appendText(root, 'h3', 'AI 설명 실패');
-        appendText(root, 'p', `AI 설명 실패: ${safeMessage(explanation.error?.message)}`);
+        appendText(root, 'p', `AI 설명 실패: ${aiErrorText(safeCode(explanation.error?.code))}`);
         if (code) appendText(root, 'p', `오류 코드: ${code}`);
         if (code === 'ON_AI_INVALID_INPUT') {
           appendText(root, 'p', '설명에 필요한 근거·규칙 또는 사건 자료가 부족하거나 확인되지 않았습니다.');
@@ -1687,6 +1790,9 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
         showFailure(reason, code);
         return root;
       };
+      if (checkedAt != null && !validTimestamp(checkedAt)) {
+        return failForInvalid('AI 설명 확인 시각의 형식이나 실제 날짜가 올바르지 않습니다.', 'ON_AI_INVALID_OUTPUT');
+      }
       if (!validId(event.id)) {
         return failForInvalid('선택한 기록의 ID를 확인할 수 없어 설명을 연결할 수 없습니다.');
       }
@@ -1847,10 +1953,8 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       const intentMismatch = (eventId !== null && receiptEventId !== null && eventId !== receiptEventId)
         || (actionValue !== null && receiptActionId !== null && actionValue !== receiptActionId);
       const observedAt = safeValue(observation?.observedAt);
-      const validObservationTime = observedAt !== null
-        && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(observedAt)
-        && Number.isFinite(Date.parse(observedAt));
-      const boundReceipt = eventId !== null && requestId !== null && actionValue !== null
+      const validObservationTime = validTimestamp(observedAt);
+      const boundReceipt = eventId !== null && requestId !== null && actionValue !== null && safeValue(receipt?.receiptId) !== null
         && eventId === receiptEventId && actionValue === receiptActionId && receiptStatus === 'succeeded';
       const effectConfirmed = receivedStatus === 'succeeded' && boundReceipt && !intentMismatch
         && observation?.effectApplied === true && validObservationTime;
@@ -1861,7 +1965,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       const receiptId = safeValue(receipt?.receiptId);
 
       appendText(root, 'h3', '보안 조치 상태');
-      appendSharedAction(root, '조치 결과 다시 조회', 'action-result-load', '조치가 준비·전달된 뒤 원천 결과 조회를 사용할 수 있습니다. 현재 대상과 조치 상태를 먼저 확인하세요.');
+      appendSharedAction(root, '조치 결과 다시 조회', 'action-result-load', '조치가 준비·전달된 뒤 원천 결과 조회를 사용할 수 있습니다. 현재 대상과 조치 상태를 먼저 확인하세요.', null, {busy: status === 'loading' || status === 'executing'});
       appendText(root, 'p', '조치의 준비·전달·결과 확인 단계를 표시합니다. 성공은 대상과 사건 ID가 일치하고 실제 효과 근거가 확인된 경우에만 표시합니다.').className = 'student-info-lead';
 
       if (eventId !== null) field('현재 사건 ID', eventId);

@@ -35,8 +35,17 @@ test('AI error messages suppress secret and token assignments including quoted k
     '{"secret":"hidden-value"}', '{"token":"hidden-value"}', 'Bearer hidden-value', 'password=hidden-value']) {
     const root = view.renderExplanation({explanation: {status: 'error', error: {code: 'ON_AI_INVALID_OUTPUT', message}}});
     assert.doesNotMatch(root.textContent, /hidden-value/);
-    assert.match(root.textContent, /안전하게 표시할 수 있는 오류 메시지가 없습니다/);
+    assert.match(root.textContent, /AI 응답이 표시 조건을 충족하지 않습니다/);
   }
+});
+
+test('AI explanation rejects impossible dates and does not echo arbitrary error text', () => {
+  for (const checkedAt of ['2026-02-30T00:00:00Z', '2026-10-31T24:00:00Z', 'not-a-date']) {
+    const input = explanationInput(); input.checkedAt = checkedAt;
+    assert.match(setup().renderExplanation(input).textContent, /확인 시각.*올바르지 않습니다/);
+  }
+  const root = setup().renderExplanation({explanation: {status: 'error', error: {code: 'UNRECOGNIZED', message: 'private diagnostic string'}}});
+  assert.doesNotMatch(root.textContent, /private diagnostic string/);
 });
 
 test('AI success text rejects oversized or secret-bearing fields before publishing any explanation', () => {
@@ -106,6 +115,9 @@ test('succeeded requires effect evidence, a valid observation timestamp and a bo
     input => {delete input.receipt.eventId;},
     input => {delete input.receipt.actionId;},
     input => {delete input.receipt.requestId;},
+    input => {delete input.receipt.receiptId;},
+    input => {input.observation.observedAt = '2026-02-30T00:00:00Z';},
+    input => {input.observation.observedAt = '2026-10-31T24:00:00Z';},
     input => {input.receipt.status = 'prepared';},
   ]) {
     const input = actionInput(); change(input);
