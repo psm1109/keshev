@@ -1640,8 +1640,8 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
       const secretPattern = /(?:Bearer\s+\S+|sk-(?:proj-|ant-|svcacct-)?[A-Za-z0-9_-]{8,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|(?:api[_ -]?key|authorization|password|secret|token|비밀번호|토큰)["']?\s*[:=]\s*\S+)/i;
       const modeLabels = {
         demo: '예제 자료(demo) · 실제 연결 결과가 아닙니다.',
-        disconnected: '연결 없음(disconnected)',
-        unknown: '연결 상태 확인 불가(unknown)',
+        disconnected: 'SDP 엔진: 연결 없음(disconnected) · AI 연결 점검 결과와는 별개입니다.',
+        unknown: 'SDP 엔진 상태: 확인 불가(unknown) · AI 연결 점검 결과는 아래에서 확인하세요.',
       };
       if (modeLabels[mode]) appendText('p', modeLabels[mode]);
 
@@ -1699,6 +1699,7 @@ export function createStudentView({ api, onChange = () => {} } = {}) {
         appendText('p', 'AI 연결 점검 결과를 확인할 수 없습니다. 모델 응답이나 사건 설명 성공으로 간주하지 마세요.');
         return root;
       }
+      appendText('p', 'AI 통신·모델 목록 점검 응답을 확인했습니다.');
       appendText('p', data.audienceAuthorization === 'test'
         ? '시험 연결 점검(test)'
         : '앱 권한 확인 후 점검(verified)');
